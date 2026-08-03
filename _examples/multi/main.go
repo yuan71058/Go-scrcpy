@@ -12,39 +12,28 @@ import (
 	"time"
 
 	"github.com/yuan71058/go-scrcpy/pkg/adb"
-	"github.com/yuan71058/go-scrcpy/pkg/protocol"
 	"github.com/yuan71058/go-scrcpy/pkg/scrcpy"
-	"github.com/yuan71058/go-scrcpy/pkg/transport"
 )
 
 func main() {
-	// 设置日志级别
-	scrcpy.SetLogLevel(scrcpy.LogLevelDebug)
+	scrcpy.SetLogLevel(scrcpy.LogLevelInfo)
 	adb.SetLogLevel(adb.LogLevelInfo)
-	transport.SetLogLevel(transport.LogLevelDebug)
-	protocol.SetLogLevel(protocol.LogLevelDebug)
 
-	// 创建 ADB 客户端
 	adbClient := adb.NewClient("adb")
-
-	// 创建多设备管理器
 	mc := scrcpy.NewMulti(adbClient)
 	defer mc.Close()
 
-	// 设置信号处理
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-	// 监听设备上下线
 	watcher := scrcpy.WatchDevices(adbClient,
-		// 设备上线
 		func(serial string) {
 			fmt.Printf("设备上线: %s\n", serial)
 
-			// 为新设备创建客户端
 			opts := scrcpy.DefaultOptions()
-			opts.Server.VideoBitRate = 2000000 // 2Mbps
+			opts.Server.VideoBitRate = 2000000
 			opts.Server.Audio = false
+			opts.Server.Control = true
 			opts.LocalJAR = "E:\\SRC\\Scrcpy\\src\\Go-scrcpy\\data\\scrcpy-server.jar"
 
 			client, err := mc.Add(serial, opts)
@@ -53,55 +42,72 @@ func main() {
 				return
 			}
 
-			// 启动视频接收
+			// 统计帧率并测试控制功能
 			go func() {
 				frameCount := 0
-				for range client.VideoStream() {
+				lastReport := time.Now()
+				testPhase := 0
+
+				for frame := range client.VideoStream() {
 					frameCount++
-					if frameCount%100 == 0 {
-						fmt.Printf("[%s] 已接收 %d 帧\n", serial, frameCount)
+
+					// 每秒报告帧率
+					if time.Since(lastReport) >= time.Second {
+						fps := float64(frameCount) / time.Since(lastReport).Seconds()
+						fmt.Printf("[%s] 帧率: %.1f fps, 最近帧大小: %d bytes, config=%v key=%v\n",
+							serial, fps, len(frame.Data), frame.Config, frame.Key)
+						frameCount = 0
+						lastReport = time.Now()
+					}
+
+					// 3秒后执行一系列控制测试
+					if frameCount == 1 && time.Since(lastReport) < 100*time.Millisecond {
+						testPhase++
+						go func(phase int) {
+							time.Sleep(3 * time.Second)
+							switch phase {
+							case 1:
+								fmt.Printf("[%s] 测试: 展开通知栏\n", serial)
+								client.ExpandNotificationPanel()
+							case 2:
+								fmt.Printf("[%s] 测试: 收起通知栏\n", serial)
+								client.CollapsePanels()
+							case 3:
+								fmt.Printf("[%s] 测试: 按 HOME 键\n", serial)
+								client.Home()
+							case 4:
+								fmt.Printf("[%s] 测试: 按 BACK 键\n", serial)
+								client.Back()
+							case 5:
+								fmt.Printf("[%s] 测试: 按 POWER 键\n", serial)
+								client.Power()
+							case 6:
+								fmt.Printf("[%s] 测试: 按 VOLUME_UP\n", serial)
+								client.VolumeUp()
+							case 7:
+								fmt.Printf("[%s] 测试: 按 VOLUME_DOWN\n", serial)
+								client.VolumeDown()
+							case 8:
+								fmt.Printf("[%s] 测试: 打开最近任务\n", serial)
+								client.Menu()
+							}
+						}(testPhase)
 					}
 				}
 				fmt.Printf("[%s] 视频流结束\n", serial)
 			}()
 		},
-		// 设备离线
 		func(serial string) {
 			fmt.Printf("设备离线: %s\n", serial)
 			mc.Remove(serial)
 		},
 	)
 
-	// 启动设备跟踪
 	ctx := context.Background()
 	if err := watcher.Start(ctx); err != nil {
 		log.Fatalf("启动设备跟踪失败: %v", err)
 	}
 
-	// 定期广播
-	go func() {
-		ticker := time.NewTicker(10 * time.Second)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-sigChan:
-				return
-			case <-ticker.C:
-				count := mc.Count()
-				if count > 0 {
-					fmt.Printf("当前连接 %d 个设备\n", count)
-					// 向所有设备发送通知栏展开
-					mc.ForEach(func(serial string, client *scrcpy.Client) {
-						fmt.Printf("  [%s] 发送展开通知栏\n", serial)
-						client.ExpandNotificationPanel()
-					})
-				}
-			}
-		}
-	}()
-
-	// 等待退出信号
 	fmt.Println("按 Ctrl+C 退出...")
 	<-sigChan
 	fmt.Println("\n正在关闭...")
