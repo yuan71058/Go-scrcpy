@@ -45,7 +45,6 @@ func main() {
 		"--keyboard=uhid",       // UHID 键盘（支持所有按键）
 		"--mouse=uhid",          // UHID 鼠标（支持所有按键）
 		"--show-touches",        // 显示触摸点
-		"--no-video-codec-lock", // 不锁定编码器
 	)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
