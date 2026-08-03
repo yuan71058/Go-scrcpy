@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -141,40 +142,8 @@ func parseDeviceLine(line string) types.Device {
 		return device
 	}
 
-	serial := parts[0]
-	state := parts[1]
-
-	// 处理 adb track-devices 可能添加的前缀
-	// 例如 "0055127.0.0.1:5555" -> "127.0.0.1:5555"
-	// 检查是否是 IP:PORT 格式且有前缀
-	if strings.Contains(serial, ":") {
-		// 尝试解析为 IP:PORT
-		serialParts := strings.Split(serial, ":")
-		if len(serialParts) == 2 {
-			ip := serialParts[0]
-			port := serialParts[1]
-
-			// 检查 IP 是否以数字开头但不是标准 IP 格式
-			// 例如 "0055127" 不是有效的 IP，需要清理
-			if len(ip) > 7 && strings.HasPrefix(ip, "0") {
-				// 尝试找到真正的 IP 地址
-				// 查找第一个不是 0 的位置
-				for i := 0; i < len(ip); i++ {
-					if ip[i] != '0' {
-						cleanIP := ip[i:]
-						// 验证是否是有效的 IP 格式
-						if strings.Contains(cleanIP, ".") {
-							serial = cleanIP + ":" + port
-						}
-						break
-					}
-				}
-			}
-		}
-	}
-
-	device.Serial = serial
-	device.State = state
+	device.Serial = cleanSerial(parts[0])
+	device.State = parts[1]
 
 	// 解析键值对（如 product:sunfire:model:Nexus_5）
 	for i := 2; i < len(parts); i++ {
@@ -195,6 +164,20 @@ func parseDeviceLine(line string) types.Device {
 	}
 
 	return device
+}
+
+// ipPortRe 匹配 IP:PORT 格式（含被前缀污染的情况）
+var ipPortRe = regexp.MustCompile(`(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d+)`)
+
+// cleanSerial 清理 adb track-devices 可能给序列号添加的垃圾前缀
+// Windows 上 track-devices -l 会输出如 "0055127.0.0.1:5555" 或 "55127.0.0.1:5555"
+func cleanSerial(serial string) string {
+	if strings.Contains(serial, ".") {
+		if m := ipPortRe.FindString(serial); m != "" {
+			return m
+		}
+	}
+	return serial
 }
 
 // IsDeviceConnected 检查指定设备是否已连接
