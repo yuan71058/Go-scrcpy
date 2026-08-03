@@ -37,7 +37,7 @@ func main() {
 	// 使用系统已安装的 scrcpy (自带 SDL2 + FFmpeg 解码)
 	cmd := exec.Command(scrcpyPath,
 		"--serial", serial,
-		"--bit-rate", "4M",
+		"--video-bit-rate", "4M",
 		"--max-size", "0",
 		"--no-audio",
 		"--window-title", fmt.Sprintf("scrcpy - %s", serial),
