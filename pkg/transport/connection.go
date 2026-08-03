@@ -57,14 +57,14 @@ func NewConnection(videoPort, audioPort, controlPort int) (*Connection, error) {
 	// 带重试的连接函数
 	dialWithRetry := func(port int) (net.Conn, error) {
 		var lastErr error
-		for i := 0; i < 5; i++ {
+		for i := 0; i < 10; i++ {
 			conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), 2*time.Second)
 			if err == nil {
 				return conn, nil
 			}
 			lastErr = err
 			logDebug("连接端口 %d 失败 (第 %d 次): %v", port, i+1, err)
-			time.Sleep(200 * time.Millisecond)
+			time.Sleep(500 * time.Millisecond)
 		}
 		return nil, lastErr
 	}

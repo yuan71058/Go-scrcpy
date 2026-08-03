@@ -175,26 +175,15 @@ func (l *Launcher) startServer(ctx context.Context, serial string, args []string
 
 // waitForServer 等待 scrcpy-server 启动并创建 socket
 func (l *Launcher) waitForServer(ctx context.Context, serial string, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-
-		// 检查 server 进程是否存在
-		running, _ := l.ADB.IsServerRunning(ctx, serial)
-		if running {
-			logDebug("server 进程已启动")
-			// 额外等待 socket 就绪
-			time.Sleep(100 * time.Millisecond)
-			return nil
-		}
-
-		time.Sleep(100 * time.Millisecond)
+	logDebug("等待 server 启动...")
+	// 等待 server 进程初始化和创建 socket
+	// 使用固定延迟，因为 ps 命令在部分设备上不可用
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(2 * time.Second):
 	}
-	return fmt.Errorf("server 未在 %v 内启动", timeout)
+	return nil
 }
 
 // Kill 终止指定设备上的 scrcpy-server
