@@ -28,3 +28,6 @@ Thumbs.db
 # Go
 go.work
 go.work.sum
+
+data/live.h264
+data/*.h264
