@@ -156,9 +156,19 @@ func (s *DeviceSession) readVideoLoop(ctx context.Context) {
 		default:
 		}
 
+		// 检查会话是否已关闭
+		if s.IsClosed() {
+			logDebug("会话已关闭，停止读取 [%s]", s.serial)
+			return
+		}
+
 		// 读取帧元数据
 		header, err := protocol.ReadFrameHeader(videoReader)
 		if err != nil {
+			if s.IsClosed() {
+				logDebug("会话已关闭，忽略读取错误 [%s]", s.serial)
+				return
+			}
 			logError("读取帧头失败 [%s]: %v", s.serial, err)
 			return
 		}
