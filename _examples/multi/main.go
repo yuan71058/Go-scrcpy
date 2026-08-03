@@ -12,13 +12,17 @@ import (
 	"time"
 
 	"github.com/yuan71058/go-scrcpy/pkg/adb"
+	"github.com/yuan71058/go-scrcpy/pkg/protocol"
 	"github.com/yuan71058/go-scrcpy/pkg/scrcpy"
+	"github.com/yuan71058/go-scrcpy/pkg/transport"
 )
 
 func main() {
 	// 设置日志级别
-	scrcpy.SetLogLevel(scrcpy.LogLevelInfo)
+	scrcpy.SetLogLevel(scrcpy.LogLevelDebug)
 	adb.SetLogLevel(adb.LogLevelInfo)
+	transport.SetLogLevel(transport.LogLevelDebug)
+	protocol.SetLogLevel(protocol.LogLevelDebug)
 
 	// 创建 ADB 客户端
 	adbClient := adb.NewClient("adb")

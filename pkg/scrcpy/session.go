@@ -147,11 +147,13 @@ func (s *DeviceSession) readVideoLoop(ctx context.Context) {
 		logDebug("视频读取循环退出 [%s]", s.serial)
 	}()
 
+	logInfo("视频读取循环启动 [%s]", s.serial)
 	videoReader := transport.NewProtocolReader(s.conn.VideoConn)
 
 	for {
 		select {
 		case <-ctx.Done():
+			logInfo("视频读取循环收到取消信号 [%s]", s.serial)
 			return
 		default:
 		}

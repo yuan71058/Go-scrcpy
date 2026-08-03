@@ -141,7 +141,7 @@ func (l *Launcher) startServer(ctx context.Context, serial string, args []string
 	// 格式: CLASSPATH=/data/local/tmp/scrcpy-server.jar nohup app_process / com.genymobile.scrcpy.Server <args>
 	classpath := fmt.Sprintf("CLASSPATH=%s", ServerPath)
 	serverArgs := strings.Join(args, " ")
-	command := fmt.Sprintf("%s nohup app_process / com.genymobile.scrcpy.Server %s >/dev/null 2>&1 &",
+	command := fmt.Sprintf("%s nohup app_process / com.genymobile.scrcpy.Server %s >/data/local/tmp/scrcpy-server.log 2>&1 &",
 		classpath, serverArgs)
 
 	logDebug("启动命令: %s", command)
