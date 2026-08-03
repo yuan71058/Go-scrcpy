@@ -1,9 +1,5 @@
-// 投屏示例 - 直接调用 scrcpy 实现投屏+控制
-// scrcpy 自带: H264解码、SDL2渲染、触控/按键输入、快捷键
-// 快捷键说明:
-//   右键: 返回 | 双击右键: Home | 三击右键: 最近任务
-//   鼠标中键: Home | Ctrl+C: 复制 | Ctrl+V: 粘贴
-//   滚轮: 音量调节 | Ctrl+Shift+O: 屏幕开关
+// 投屏示例 - 使用项目自己的 Go 代码实现投屏+控制
+// 通过 pkg/scrcpy 接收视频流，pkg/render 解码渲染
 package main
 
 import (
@@ -12,13 +8,12 @@ import (
 	"log"
 	"os"
 	"os/exec"
-	"os/signal"
-	"syscall"
+	"path/filepath"
 
 	"github.com/yuan71058/go-scrcpy/pkg/adb"
+	"github.com/yuan71058/go-scrcpy/pkg/render"
+	"github.com/yuan71058/go-scrcpy/pkg/scrcpy"
 )
-
-const scrcpyPath = `E:\SRC\Scrcpy\src\Go-scrcpy\data\scrcpy-win64-v4.1\scrcpy.exe`
 
 func main() {
 	adbClient := adb.NewClient("adb")
@@ -34,37 +29,90 @@ func main() {
 	serial := devices[0].Serial
 	fmt.Printf("设备: %s\n", serial)
 
-	// 使用系统已安装的 scrcpy (自带 SDL2 + FFmpeg 解码)
-	cmd := exec.Command(scrcpyPath,
-		"--serial", serial,
-		"--video-bit-rate", "4M",
-		"--max-size", "0",
-		"--no-audio",
-		"--window-title", fmt.Sprintf("scrcpy - %s", serial),
-		// 控制相关
-		"--keyboard=uhid",       // UHID 键盘（支持所有按键）
-		"--mouse=uhid",          // UHID 鼠标（支持所有按键）
-		"--show-touches",        // 显示触摸点
-	)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Stdin = os.Stdin
+	// adb root
+	rootCmd := exec.Command("adb", "-s", serial, "root")
+	rootCmd.CombinedOutput()
 
-	fmt.Println("启动投屏...")
-	fmt.Println("控制说明:")
-	fmt.Println("  鼠标点击: 触摸")
-	fmt.Println("  右键: 返回 | 双击右键: Home | 三击右键: 最近任务")
-	fmt.Println("  鼠标中键: Home | 滚轮: 音量/页面滚动")
-	fmt.Println("  Ctrl+C: 复制 | Ctrl+V: 粘贴 | Ctrl+Shift+O: 屏幕开关")
-	fmt.Println("  Ctrl+F: 全屏 | Ctrl+G: 1:1 | Ctrl+X: 剪切")
-	fmt.Println("  Ctrl+Shift+C: 通知栏 | Ctrl+Shift+N: 设置面板")
+	// scrcpy-server.jar 路径
+	// 从 _examples/mirror 向上两级到 project root
+	exe, _ := os.Getwd()
+	projectRoot := filepath.Dir(filepath.Dir(exe))
+	localJAR := filepath.Join(projectRoot, "data", "scrcpy-server.jar")
+	fmt.Printf("JAR: %s\n", localJAR)
 
-	if err := cmd.Run(); err != nil {
-		log.Fatalf("scrcpy 退出: %v", err)
+	// 创建 scrcpy 客户端
+	opts := scrcpy.DefaultOptions()
+	opts.LocalJAR = localJAR
+	opts.Server.VideoBitRate = 4000000
+	opts.Server.Audio = false
+	opts.Server.Control = true
+
+	listenPort := 27183
+	client := scrcpy.New(serial, opts, listenPort)
+
+	// 启动客户端
+	fmt.Println("连接设备...")
+	if err := client.Start(ctx); err != nil {
+		log.Fatalf("启动失败: %v", err)
+	}
+	defer client.Close()
+
+	// 创建解码器
+	decoder, err := render.NewH264Decoder()
+	if err != nil {
+		log.Fatalf("创建解码器失败: %v", err)
+	}
+	defer decoder.Close()
+
+	fmt.Println("连接成功！启动投屏窗口...")
+
+	// 创建 SDL 渲染器 (初始尺寸 0,0 会在收到第一帧时调整)
+	var sdl *render.SDLRenderer
+
+	frameCount := 0
+	var lastW, lastH int
+
+	// 读取视频帧并渲染
+	for frame := range client.VideoStream() {
+		if !frame.Config {
+			// 解码 H264 帧
+			yuv, w, h, err := decoder.Decode(frame.Data)
+			if err != nil {
+				continue
+			}
+
+			// 尺寸变化时重建渲染器
+			if sdl == nil || w != lastW || h != lastH {
+				if sdl != nil {
+					sdl.Destroy()
+				}
+				title := fmt.Sprintf("scrcpy - %s (%dx%d)", serial, w, h)
+				sdl, err = render.NewSDLRenderer(title, w, h)
+				if err != nil {
+					log.Fatalf("创建渲染器失败: %v", err)
+				}
+				lastW = w
+				lastH = h
+				fmt.Printf("视频尺寸: %dx%d\n", w, h)
+			}
+
+			// YUV -> RGB
+			rgb := render.YUV420PtoRGB(yuv, w, h)
+
+			// 渲染
+			if err := sdl.RenderYUV(rgb); err != nil {
+				log.Printf("渲染失败: %v", err)
+			}
+
+			frameCount++
+			if frameCount%100 == 0 {
+				fmt.Printf("已渲染 %d 帧\n", frameCount)
+			}
+		}
 	}
 
-	// 信号处理
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-	<-sigChan
+	if sdl != nil {
+		sdl.Destroy()
+	}
+	fmt.Printf("投屏结束，共渲染 %d 帧\n", frameCount)
 }

@@ -9,11 +9,11 @@ import (
 // 基础实现：存储编码帧数据
 // 生产环境可替换为 FFmpeg CGo 绑定或 joy5
 type H264Decoder struct {
-	frames  chan *DecodedFrame // 解码后的帧队列
-	width   int               // 视频宽度
-	height  int               // 视频高度
-	mu      sync.Mutex
-	closed  bool
+	frames chan *DecodedFrame // 解码后的帧队列
+	closed chan struct{}      // 关闭信号
+	width  int                // 视频宽度
+	height int                // 视频高度
+	mu     sync.Mutex
 	spsData []byte // SPS 数据
 	ppsData []byte // PPS 数据
 }
@@ -26,18 +26,18 @@ func NewH264Decoder(capacity int) *H264Decoder {
 	}
 	return &H264Decoder{
 		frames: make(chan *DecodedFrame, capacity),
+		closed: make(chan struct{}),
 	}
 }
 
 // Push 推送编码数据到解码器
 // 数据应为 Annex B 格式（含 start code）
 func (d *H264Decoder) Push(data []byte) error {
-	d.mu.Lock()
-	if d.closed {
-		d.mu.Unlock()
+	select {
+	case <-d.closed:
 		return fmt.Errorf("解码器已关闭")
+	default:
 	}
-	d.mu.Unlock()
 
 	// 检查是否为配置帧 (SPS/PPS)
 	isConfig := HasSPSPPS(data)
@@ -77,14 +77,22 @@ func (d *H264Decoder) Push(data []byte) error {
 	case d.frames <- frame:
 		logDebug("推送帧: config=%v, key=%v, size=%d", isConfig, isKey, len(data))
 		return nil
+	case <-d.closed:
+		return fmt.Errorf("解码器已关闭")
 	default:
 		// 队列满，丢弃最旧的帧
 		select {
 		case <-d.frames:
 			logDebug("帧队列满，丢弃旧帧")
+		case <-d.closed:
+			return fmt.Errorf("解码器已关闭")
 		default:
 		}
-		d.frames <- frame
+		select {
+		case d.frames <- frame:
+		case <-d.closed:
+			return fmt.Errorf("解码器已关闭")
+		}
 		return nil
 	}
 }
@@ -92,17 +100,18 @@ func (d *H264Decoder) Push(data []byte) error {
 // ReadFrame 读取解码后的帧（阻塞）
 func (d *H264Decoder) ReadFrame() (*DecodedFrame, error) {
 	d.mu.Lock()
-	if d.closed {
-		d.mu.Unlock()
-		return nil, fmt.Errorf("解码器已关闭")
-	}
+	closed := d.closed
 	d.mu.Unlock()
 
-	frame := <-d.frames
-	if frame == nil {
+	select {
+	case frame := <-d.frames:
+		if frame == nil {
+			return nil, fmt.Errorf("解码器已关闭")
+		}
+		return frame, nil
+	case <-closed:
 		return nil, fmt.Errorf("解码器已关闭")
 	}
-	return frame, nil
 }
 
 // Close 关闭解码器
@@ -110,11 +119,13 @@ func (d *H264Decoder) Close() error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	if d.closed {
-		return nil
+	select {
+	case <-d.closed:
+		return nil // 已经关闭
+	default:
 	}
 
-	d.closed = true
+	close(d.closed)
 	close(d.frames)
 	logInfo("H.264 解码器已关闭")
 	return nil
