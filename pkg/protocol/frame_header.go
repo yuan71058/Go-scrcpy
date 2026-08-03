@@ -18,34 +18,40 @@ type FrameHeader struct {
 // ReadFrameHeader 从流中读取帧元数据头
 // 协议格式 (12 字节):
 // [8B] PTS + flags (big-endian):
-//   bit 63 = PACKET_FLAG_CONFIG (配置包)
-//   bit 62 = PACKET_FLAG_KEY_FRAME (关键帧)
-//   其余位 = PTS 微秒时间戳
+//   byte 0: 0CK.....
+//     bit 7: media packet flag (0 = media packet, 1 = session packet)
+//     bit 6: config packet flag
+//     bit 5: key frame flag
+//     bits 4-0: PTS bits 60-56
+//   byte 1-7: PTS bits 55-0
 // [4B] Packet size (big-endian)
 func ReadFrameHeader(reader *transport.ProtocolReader) (*FrameHeader, error) {
 	logDebug("读取帧元数据头...")
 
-	// 读取 PTS + flags (big-endian)
+	// 读取 PTS + flags (8 bytes, big-endian)
 	ptsAndFlags, err := reader.ReadUint64BE()
 	if err != nil {
 		return nil, fmt.Errorf("读取 PTS+flags 失败: %w", err)
 	}
 
-	// 读取包大小 (big-endian)
+	// 读取包大小 (4 bytes, big-endian)
 	size, err := reader.ReadUint32BE()
 	if err != nil {
 		return nil, fmt.Errorf("读取包大小失败: %w", err)
 	}
 
-	// 解析标志位
-	config := (ptsAndFlags & PacketFlagConfig) != 0
-	key := (ptsAndFlags & PacketFlagKeyFrame) != 0
+	// 解析标志位 (从最高字节)
+	// bit 7: media packet flag (0 = media packet, 1 = session packet)
+	// bit 6: config packet flag
+	// bit 5: key frame flag
+	config := (ptsAndFlags & (1 << 62)) != 0
+	key := (ptsAndFlags & (1 << 61)) != 0
 
-	// 提取 PTS (使用掩码清除标志位)
-	pts := ptsAndFlags & PacketPTSMask
+	// 提取 PTS (清除标志位，保留低 61 位)
+	pts := int64(ptsAndFlags & 0x1FFFFFFFFFFFFFFF)
 
 	header := &FrameHeader{
-		PTS:    int64(pts),
+		PTS:    pts,
 		Size:   size,
 		Config: config,
 		Key:    key,
