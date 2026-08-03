@@ -34,7 +34,7 @@ func main() {
 	opts := scrcpy.DefaultOptions()
 	opts.Server.VideoBitRate = 4000000 // 4Mbps
 	opts.Server.Audio = false          // 暂不处理音频
-	opts.LocalJAR = "../../data/scrcpy-server.jar"
+	opts.LocalJAR = "E:\\SRC\\Scrcpy\\src\\Go-scrcpy\\data\\scrcpy-server.jar"
 
 	// 使用随机端口
 	listenPort := 27183

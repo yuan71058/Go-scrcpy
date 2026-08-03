@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -151,10 +152,8 @@ func (c *Client) RemoveAllReverses(ctx context.Context, serial string) error {
 func (c *Client) Push(ctx context.Context, serial string, local string, remote string) error {
 	logInfo("推送文件 [%s]: %s -> %s", serial, local, remote)
 
-	// Windows 路径需要引号包裹
-	if strings.Contains(local, " ") || strings.Contains(local, "\\") {
-		local = fmt.Sprintf("%q", local)
-	}
+	// 转换 Windows 路径分隔符为正斜杠
+	local = filepath.ToSlash(local)
 
 	_, err := c.runDeviceCommand(ctx, serial, "push", local, remote)
 	if err != nil {
