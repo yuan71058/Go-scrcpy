@@ -52,28 +52,24 @@ func ReadHandshake(reader *transport.ProtocolReader) (*Handshake, error) {
 	handshake.DeviceName = strings.TrimRight(string(deviceNameBytes), "\x00")
 	logInfo("设备名: %s", handshake.DeviceName)
 
-	// 读取视频流 codec ID (4 字节)
+	// 读取视频流 codec ID (4 字节, big-endian)
 	videoCodecID, err := reader.ReadUint32BE()
 	if err != nil {
 		return nil, fmt.Errorf("读取视频 codec ID 失败: %w", err)
 	}
 	logDebug("视频 codec ID: 0x%08X", videoCodecID)
 
-	// 读取会话元数据 (12 字节: flags + width + height)
-	sessionFlags, err := reader.ReadInt32BE()
+	// 读取初始分辨率 (8 字节: width + height, big-endian)
+	width, err := reader.ReadUint32BE()
 	if err != nil {
-		return nil, fmt.Errorf("读取会话标志失败: %w", err)
+		return nil, fmt.Errorf("读取宽度失败: %w", err)
 	}
-	sessionWidth, err := reader.ReadInt32BE()
+	height, err := reader.ReadUint32BE()
 	if err != nil {
-		return nil, fmt.Errorf("读取会话宽度失败: %w", err)
-	}
-	sessionHeight, err := reader.ReadInt32BE()
-	if err != nil {
-		return nil, fmt.Errorf("读取会话高度失败: %w", err)
+		return nil, fmt.Errorf("读取高度失败: %w", err)
 	}
 
-	logDebug("会话信息: flags=%d, width=%d, height=%d", sessionFlags, sessionWidth, sessionHeight)
+	logDebug("初始分辨率: %dx%d", width, height)
 
 	logInfo("握手数据读取完成")
 	return handshake, nil

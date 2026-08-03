@@ -28,15 +28,14 @@ const (
 )
 
 // 帧标志位常量 (用于 PTS + flags 字段)
-// 注意: 这些标志位在协议中使用 int64 表示，但 bit 63 是符号位
-// 实际使用时通过位运算组合
+// 注意: 这些标志位在协议中使用 uint64 表示
 const (
-	// PacketFlagConfig 配置包标志 (SPS/PPS)
-	PacketFlagConfig int64 = 1 << 62
-	// PacketFlagKeyFrame 关键帧标志
-	PacketFlagKeyFrame int64 = 1 << 61
-	// PacketFlagSession 会话标志 (bit 63, 需要特殊处理)
-	// 在 Go 中不能直接定义为 int64 常量，使用时通过位运算设置
+	// PacketFlagConfig 配置包标志 (SPS/PPS) - bit 63
+	PacketFlagConfig uint64 = 1 << 63
+	// PacketFlagKeyFrame 关键帧标志 - bit 62
+	PacketFlagKeyFrame uint64 = 1 << 62
+	// PacketPTSMask PTS 掩码 (低 62 位)
+	PacketPTSMask uint64 = 0x3FFFFFFFFFFFFFFF
 )
 
 // 控制消息类型常量

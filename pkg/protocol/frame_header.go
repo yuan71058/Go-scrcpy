@@ -10,29 +10,29 @@ import (
 // 每个编码包前附带，包含 PTS 时间戳和包大小
 type FrameHeader struct {
 	PTS    int64  // 显示时间戳 (微秒)
-	Size   int32  // 编码包大小 (字节)
+	Size   uint32 // 编码包大小 (字节)
 	Config bool   // 是否为配置帧 (SPS/PPS)
 	Key    bool   // 是否为关键帧
 }
 
 // ReadFrameHeader 从流中读取帧元数据头
 // 协议格式 (12 字节):
-// [8B] PTS + flags (native byte order, little-endian):
-//   bit 62 = PACKET_FLAG_CONFIG (配置包)
-//   bit 61 = PACKET_FLAG_KEY_FRAME (关键帧)
+// [8B] PTS + flags (big-endian):
+//   bit 63 = PACKET_FLAG_CONFIG (配置包)
+//   bit 62 = PACKET_FLAG_KEY_FRAME (关键帧)
 //   其余位 = PTS 微秒时间戳
-// [4B] Packet size (native byte order, little-endian)
+// [4B] Packet size (big-endian)
 func ReadFrameHeader(reader *transport.ProtocolReader) (*FrameHeader, error) {
 	logDebug("读取帧元数据头...")
 
-	// 读取 PTS + flags (native byte order)
-	ptsAndFlags, err := reader.ReadInt64Native()
+	// 读取 PTS + flags (big-endian)
+	ptsAndFlags, err := reader.ReadUint64BE()
 	if err != nil {
 		return nil, fmt.Errorf("读取 PTS+flags 失败: %w", err)
 	}
 
-	// 读取包大小 (native byte order)
-	size, err := reader.ReadInt32Native()
+	// 读取包大小 (big-endian)
+	size, err := reader.ReadUint32BE()
 	if err != nil {
 		return nil, fmt.Errorf("读取包大小失败: %w", err)
 	}
@@ -41,11 +41,11 @@ func ReadFrameHeader(reader *transport.ProtocolReader) (*FrameHeader, error) {
 	config := (ptsAndFlags & PacketFlagConfig) != 0
 	key := (ptsAndFlags & PacketFlagKeyFrame) != 0
 
-	// 提取 PTS (清除标志位)
-	pts := ptsAndFlags & ^(PacketFlagConfig | PacketFlagKeyFrame)
+	// 提取 PTS (使用掩码清除标志位)
+	pts := ptsAndFlags & PacketPTSMask
 
 	header := &FrameHeader{
-		PTS:    pts,
+		PTS:    int64(pts),
 		Size:   size,
 		Config: config,
 		Key:    key,
@@ -72,7 +72,7 @@ func (h *FrameHeader) GetPTS() int64 {
 }
 
 // GetSize 获取编码包大小 (字节)
-func (h *FrameHeader) GetSize() int32 {
+func (h *FrameHeader) GetSize() uint32 {
 	return h.Size
 }
 
