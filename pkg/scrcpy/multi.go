@@ -3,12 +3,25 @@ package scrcpy
 import (
 	"context"
 	"fmt"
+	"net"
 	"sync"
 
 	"github.com/yuan71058/go-scrcpy/pkg/adb"
 	"github.com/yuan71058/go-scrcpy/pkg/types"
 	"github.com/yuan71058/go-scrcpy/pkg/video"
 )
+
+// findAvailablePort 查找一个可用的本地 TCP 端口
+func findAvailablePort() (int, error) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return 0, fmt.Errorf("查找可用端口失败: %w", err)
+	}
+	defer listener.Close()
+
+	addr := listener.Addr().(*net.TCPAddr)
+	return addr.Port, nil
+}
 
 // MultiClient 多设备管理器
 // 支持多个设备同时接入控制
@@ -46,8 +59,14 @@ func (m *MultiClient) Add(serial string, opts Options) (*Client, error) {
 
 	logInfo("添加设备 [%s]", serial)
 
+	// 查找可用端口
+	port, err := findAvailablePort()
+	if err != nil {
+		return nil, fmt.Errorf("查找可用端口失败: %w", err)
+	}
+
 	// 创建客户端
-	client := New(serial, opts)
+	client := New(serial, opts, port)
 
 	// 启动客户端
 	ctx := context.Background()

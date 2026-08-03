@@ -34,7 +34,8 @@ func main() {
 	opts.Server.Audio = false
 	opts.LocalJAR = "../../data/scrcpy-server.jar"
 
-	client := scrcpy.New(serial, opts)
+	listenPort := 27185
+	client := scrcpy.New(serial, opts, listenPort)
 
 	// 设置信号处理
 	sigChan := make(chan os.Signal, 1)

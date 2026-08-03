@@ -1,4 +1,5 @@
 // Package transport 管理与 scrcpy-server 的三通道 socket 连接
+// 使用 reverse tunnel 模式：Android 服务端主动连接 PC
 package transport
 
 import (
@@ -41,64 +42,142 @@ func logError(format string, args ...interface{}) {
 	}
 }
 
-// Connection 封装与 scrcpy-server 的三通道连接
+// Listener 管理 reverse tunnel 监听器
+// Android 服务端主动连接 PC
+type Listener struct {
+	ln        net.Listener
+	videoConn net.Conn
+	audioConn net.Conn
+	controlConn net.Conn
+	mu        sync.Mutex
+}
+
+// NewListener 创建 reverse tunnel 监听器
+// port: PC 监听端口
+func NewListener(port int) (*Listener, error) {
+	addr := fmt.Sprintf("127.0.0.1:%d", port)
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return nil, fmt.Errorf("监听端口 %d 失败: %w", port, err)
+	}
+
+	logInfo("reverse tunnel 监听器已启动: %s", addr)
+	return &Listener{ln: ln}, nil
+}
+
+// GetPort 获取监听端口
+func (l *Listener) GetPort() int {
+	return l.ln.Addr().(*net.TCPAddr).Port
+}
+
+// Accept 等待 Android 服务端连接
+// count: 需要接受的连接数量 (1-3)
+// timeout: 超时时间
+func (l *Listener) Accept(count int, timeout time.Duration) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	deadline := time.Now().Add(timeout)
+
+	for i := 0; i < count; i++ {
+		if time.Now().After(deadline) {
+			return fmt.Errorf("等待连接超时")
+		}
+
+		// 设置接受超时
+		ln := l.ln.(*net.TCPListener)
+		ln.SetDeadline(deadline)
+
+		conn, err := l.ln.Accept()
+		if err != nil {
+			return fmt.Errorf("接受第 %d 条连接失败: %w", i+1, err)
+		}
+
+		switch i {
+		case 0:
+			l.videoConn = conn
+			logDebug("视频通道已连接: %s", conn.RemoteAddr())
+		case 1:
+			l.audioConn = conn
+			logDebug("音频通道已连接: %s", conn.RemoteAddr())
+		case 2:
+			l.controlConn = conn
+			logDebug("控制通道已连接: %s", conn.RemoteAddr())
+		}
+	}
+
+	// 清除超时
+	ln := l.ln.(*net.TCPListener)
+	ln.SetDeadline(time.Time{})
+
+	return nil
+}
+
+// GetVideoConn 获取视频通道连接
+func (l *Listener) GetVideoConn() net.Conn {
+	return l.videoConn
+}
+
+// GetAudioConn 获取音频通道连接
+func (l *Listener) GetAudioConn() net.Conn {
+	return l.audioConn
+}
+
+// GetControlConn 获取控制通道连接
+func (l *Listener) GetControlConn() net.Conn {
+	return l.controlConn
+}
+
+// Close 关闭监听器和所有连接
+func (l *Listener) Close() error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	var firstErr error
+
+	if l.videoConn != nil {
+		if err := l.videoConn.Close(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+
+	if l.audioConn != nil {
+		if err := l.audioConn.Close(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+
+	if l.controlConn != nil {
+		if err := l.controlConn.Close(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+
+	if l.ln != nil {
+		if err := l.ln.Close(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+
+	logDebug("reverse tunnel 监听器已关闭")
+	return firstErr
+}
+
+// Connection 封装与 scrcpy-server 的三通道连接 (兼容旧接口)
 type Connection struct {
-	VideoConn   net.Conn // 视频通道连接
-	AudioConn   net.Conn // 音频通道连接
-	ControlConn net.Conn // 控制通道连接
+	VideoConn   net.Conn
+	AudioConn   net.Conn
+	ControlConn net.Conn
 	mu          sync.Mutex
 }
 
-// NewConnection 创建三通道连接
-// videoPort, audioPort, controlPort: 本地转发端口
-func NewConnection(videoPort, audioPort, controlPort int) (*Connection, error) {
-	logInfo("建立三通道连接: video=%d, audio=%d, control=%d", videoPort, audioPort, controlPort)
-
-	// 带重试的连接函数
-	dialWithRetry := func(port int) (net.Conn, error) {
-		var lastErr error
-		for i := 0; i < 10; i++ {
-			conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), 2*time.Second)
-			if err == nil {
-				return conn, nil
-			}
-			lastErr = err
-			logDebug("连接端口 %d 失败 (第 %d 次): %v", port, i+1, err)
-			time.Sleep(500 * time.Millisecond)
-		}
-		return nil, lastErr
-	}
-
-	// 连接视频通道
-	videoConn, err := dialWithRetry(videoPort)
-	if err != nil {
-		return nil, fmt.Errorf("连接视频通道失败: %w", err)
-	}
-	logDebug("视频通道已连接")
-
-	// 连接音频通道
-	audioConn, err := dialWithRetry(audioPort)
-	if err != nil {
-		videoConn.Close()
-		return nil, fmt.Errorf("连接音频通道失败: %w", err)
-	}
-	logDebug("音频通道已连接")
-
-	// 连接控制通道
-	controlConn, err := dialWithRetry(controlPort)
-	if err != nil {
-		videoConn.Close()
-		audioConn.Close()
-		return nil, fmt.Errorf("连接控制通道失败: %w", err)
-	}
-	logDebug("控制通道已连接")
-
-	logInfo("三通道连接建立成功")
+// NewConnection 从 Listener 创建 Connection
+func NewConnectionFromListener(l *Listener) *Connection {
 	return &Connection{
-		VideoConn:   videoConn,
-		AudioConn:   audioConn,
-		ControlConn: controlConn,
-	}, nil
+		VideoConn:   l.GetVideoConn(),
+		AudioConn:   l.GetAudioConn(),
+		ControlConn: l.GetControlConn(),
+	}
 }
 
 // Close 关闭所有通道连接

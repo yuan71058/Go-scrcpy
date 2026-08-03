@@ -14,20 +14,23 @@ import (
 // Client 单设备客户端
 // 封装与单个 Android 设备的 scrcpy 连接
 type Client struct {
-	session *DeviceSession
-	adb     *adb.Client
-	opts    Options
-	closed  bool
+	session   *DeviceSession
+	adb       *adb.Client
+	opts      Options
+	listenPort int
+	closed    bool
 }
 
 // New 创建新的单设备客户端
 // serial: 设备序列号
 // opts: 启动选项
-func New(serial string, opts Options) *Client {
+// listenPort: PC 监听端口 (0 = 自动分配)
+func New(serial string, opts Options, listenPort int) *Client {
 	return &Client{
-		session: NewSession(serial),
-		adb:     adb.NewClient(opts.ADBPath),
-		opts:    opts,
+		session:    NewSession(serial),
+		adb:        adb.NewClient(opts.ADBPath),
+		opts:       opts,
+		listenPort: listenPort,
 	}
 }
 
@@ -41,7 +44,7 @@ func (c *Client) Start(ctx context.Context) error {
 	logInfo("启动客户端 [%s]", c.session.GetSerial())
 
 	// 连接设备
-	if err := c.session.Connect(ctx, c.adb, c.opts.Server, c.opts.LocalJAR); err != nil {
+	if err := c.session.Connect(ctx, c.adb, c.opts.Server, c.opts.LocalJAR, c.listenPort); err != nil {
 		return fmt.Errorf("连接设备失败: %w", err)
 	}
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/yuan71058/go-scrcpy/pkg/adb"
 	"github.com/yuan71058/go-scrcpy/pkg/audio"
@@ -19,6 +20,7 @@ import (
 // 管理单个设备的连接、流和控制
 type DeviceSession struct {
 	serial     string                 // 设备序列号
+	listener   *transport.Listener   // reverse tunnel 监听器
 	conn       *transport.Connection  // 三通道连接
 	handshake  *protocol.Handshake    // 握手数据
 	videoDec   *video.H264Decoder     // 视频解码器
@@ -46,48 +48,61 @@ func NewSession(serial string) *DeviceSession {
 	}
 }
 
-// Connect 建立与设备的连接
-func (s *DeviceSession) Connect(ctx context.Context, adbClient *adb.Client, opts server.Options, localJAR string) error {
+// Connect 建立与设备的连接 (使用 reverse tunnel 模式)
+func (s *DeviceSession) Connect(ctx context.Context, adbClient *adb.Client, opts server.Options, localJAR string, listenPort int) error {
 	logInfo("建立设备连接 [%s]", s.serial)
 
-	// 启动 server
-	launcher := server.NewLauncher(adbClient)
-	connInfo, err := launcher.Start(ctx, s.serial, opts, localJAR)
+	// 1. 创建 reverse tunnel 监听器
+	listener, err := transport.NewListener(listenPort)
 	if err != nil {
+		return fmt.Errorf("创建监听器失败: %w", err)
+	}
+	s.listener = listener
+
+	// 2. 启动 server (会设置 adb reverse 并启动进程)
+	launcher := server.NewLauncher(adbClient)
+	_, err = launcher.Start(ctx, s.serial, opts, localJAR, listener.GetPort())
+	if err != nil {
+		listener.Close()
 		return fmt.Errorf("启动 server 失败: %w", err)
 	}
 
-	// 建立三通道连接
-	conn, err := transport.NewConnection(connInfo.VideoPort, connInfo.AudioPort, connInfo.ControlPort)
+	// 3. 等待 Android 服务端连接 (3 条连接: video, audio, control)
+	logInfo("等待 Android 服务端连接...")
+	err = listener.Accept(3, 10*time.Second)
 	if err != nil {
-		return fmt.Errorf("建立连接失败: %w", err)
+		listener.Close()
+		return fmt.Errorf("等待连接失败: %w", err)
 	}
-	s.conn = conn
 
-	// 读取握手数据
-	videoReader := transport.NewProtocolReader(conn.VideoConn)
+	// 4. 创建 Connection
+	s.conn = transport.NewConnectionFromListener(listener)
+
+	// 5. 读取握手数据
+	videoReader := transport.NewProtocolReader(s.conn.VideoConn)
 	handshake, err := protocol.ReadHandshake(videoReader)
 	if err != nil {
-		conn.Close()
+		s.conn.Close()
+		listener.Close()
 		return fmt.Errorf("读取握手数据失败: %w", err)
 	}
 	s.handshake = handshake
 
-	// 创建视频解码器
+	// 6. 创建视频解码器
 	s.videoDec = video.NewH264Decoder(60)
 
-	// 创建音频解码器（如果启用了音频）
+	// 7. 创建音频解码器（如果启用了音频）
 	if opts.Audio {
 		s.audioDec = audio.NewOpusDecoder(100)
 	}
 
-	// 创建剪贴板管理器
+	// 8. 创建剪贴板管理器
 	s.clipboard = control.NewClipboard(s)
 
-	// 创建文件推送器
+	// 9. 创建文件推送器
 	s.filePusher = control.NewFilePusher(s)
 
-	// 获取设备信息
+	// 10. 获取设备信息
 	props, _ := adbClient.GetDeviceProperties(ctx, s.serial)
 	s.deviceInfo = &types.DeviceInfo{
 		Serial:     s.serial,
@@ -367,6 +382,11 @@ func (s *DeviceSession) Close() error {
 	// 关闭连接
 	if s.conn != nil {
 		s.conn.Close()
+	}
+
+	// 关闭监听器
+	if s.listener != nil {
+		s.listener.Close()
 	}
 
 	// 关闭通道

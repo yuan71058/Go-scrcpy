@@ -45,11 +45,10 @@ func logError(format string, args ...interface{}) {
 }
 
 // ServerConn 表示与 scrcpy-server 的连接信息
+// 使用 reverse tunnel 模式：Android 服务端主动连接 PC
 type ServerConn struct {
 	Serial    string // 设备序列号
-	VideoPort int    // 视频通道本地端口
-	AudioPort int    // 音频通道本地端口
-	ControlPort int  // 控制通道本地端口
+	Port      int    // PC 监听端口
 }
 
 // Launcher 管理 scrcpy-server 的生命周期
@@ -68,7 +67,8 @@ func NewLauncher(adbClient *adb.Client) *Launcher {
 // serial: 设备序列号
 // opts: server 启动参数
 // localJAR: 本地 scrcpy-server.jar 路径（为空则使用设备上已有的）
-func (l *Launcher) Start(ctx context.Context, serial string, opts Options, localJAR string) (*ServerConn, error) {
+// listenPort: PC 监听端口
+func (l *Launcher) Start(ctx context.Context, serial string, opts Options, localJAR string, listenPort int) (*ServerConn, error) {
 	logInfo("启动 scrcpy-server [%s]...", serial)
 
 	// 检查 server 是否已在运行
@@ -90,6 +90,13 @@ func (l *Launcher) Start(ctx context.Context, serial string, opts Options, local
 		}
 	}
 
+	// 设置 reverse tunnel
+	// 命令: adb reverse localabstract:scrcpy tcp:<port>
+	socketName := "scrcpy"
+	if err := l.ADB.Reverse(ctx, serial, socketName, listenPort); err != nil {
+		return nil, fmt.Errorf("设置 reverse tunnel 失败: %w", err)
+	}
+
 	// 构建启动参数
 	args := opts.ToArgs()
 	logInfo("server 参数: %s", strings.Join(args, " "))
@@ -99,31 +106,12 @@ func (l *Launcher) Start(ctx context.Context, serial string, opts Options, local
 		return nil, fmt.Errorf("启动 server 失败: %w", err)
 	}
 
-	// 建立端口转发
-	videoPort, err := l.ADB.Forward(ctx, serial, "localabstract:scrcpy")
-	if err != nil {
-		return nil, fmt.Errorf("视频端口转发失败: %w", err)
-	}
-
-	audioPort, err := l.ADB.Forward(ctx, serial, "localabstract:scrcpy_1")
-	if err != nil {
-		return nil, fmt.Errorf("音频端口转发失败: %w", err)
-	}
-
-	controlPort, err := l.ADB.Forward(ctx, serial, "localabstract:scrcpy_2")
-	if err != nil {
-		return nil, fmt.Errorf("控制端口转发失败: %w", err)
-	}
-
 	conn := &ServerConn{
-		Serial:      serial,
-		VideoPort:   videoPort,
-		AudioPort:   audioPort,
-		ControlPort: controlPort,
+		Serial: serial,
+		Port:   listenPort,
 	}
 
-	logInfo("scrcpy-server 启动成功 [%s]: video=%d, audio=%d, control=%d",
-		serial, videoPort, audioPort, controlPort)
+	logInfo("scrcpy-server 启动成功 [%s]: 监听端口 %d", serial, listenPort)
 
 	return conn, nil
 }
@@ -164,7 +152,7 @@ func (l *Launcher) startServer(ctx context.Context, serial string, args []string
 		return fmt.Errorf("执行启动命令失败: %w", err)
 	}
 
-	// 等待 server 启动并监听 socket
+	// 等待 server 启动并创建 socket
 	logDebug("等待 server 启动...")
 	if err := l.waitForServer(ctx, serial, 5*time.Second); err != nil {
 		return fmt.Errorf("等待 server 启动超时: %w", err)
@@ -190,9 +178,9 @@ func (l *Launcher) waitForServer(ctx context.Context, serial string, timeout tim
 func (l *Launcher) Kill(ctx context.Context, serial string) error {
 	logInfo("终止 scrcpy-server [%s]", serial)
 
-	// 移除端口转发
-	if err := l.ADB.RemoveAllForwards(ctx, serial); err != nil {
-		logDebug("移除端口转发失败: %v", err)
+	// 移除 reverse tunnel
+	if err := l.ADB.RemoveAllReverses(ctx, serial); err != nil {
+		logDebug("移除 reverse tunnel 失败: %v", err)
 	}
 
 	// 终止 server 进程

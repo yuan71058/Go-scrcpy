@@ -112,11 +112,49 @@ func (c *Client) RemoveAllForwards(ctx context.Context, serial string) error {
 	return nil
 }
 
+// Reverse 建立 ADB 反向隧道
+// serial: 设备序列号
+// remoteAbstract: 设备上的 abstract socket 名称 (如 "scrcpy")
+// localPort: PC 本地监听端口
+func (c *Client) Reverse(ctx context.Context, serial string, remoteAbstract string, localPort int) error {
+	logInfo("建立反向隧道 [%s]: localabstract:%s -> tcp:%d", serial, remoteAbstract, localPort)
+
+	remote := fmt.Sprintf("localabstract:%s", remoteAbstract)
+	local := fmt.Sprintf("tcp:%d", localPort)
+
+	_, err := c.runDeviceCommand(ctx, serial, "reverse", remote, local)
+	if err != nil {
+		return fmt.Errorf("建立反向隧道失败: %w", err)
+	}
+
+	logInfo("反向隧道建立成功: %s -> %s", remote, local)
+	return nil
+}
+
+// RemoveAllReverses 移除指定设备的所有反向隧道
+func (c *Client) RemoveAllReverses(ctx context.Context, serial string) error {
+	logInfo("移除 [%s] 的所有反向隧道", serial)
+
+	_, err := c.runDeviceCommand(ctx, serial, "reverse", "--remove-all")
+	if err != nil {
+		// 可能没有反向隧道，忽略错误
+		logDebug("移除反向隧道结果: %v", err)
+	}
+
+	logInfo("已移除 [%s] 的所有反向隧道", serial)
+	return nil
+}
+
 // Push 推送文件到设备
 // local: 本地文件路径
 // remote: 设备上的目标路径
 func (c *Client) Push(ctx context.Context, serial string, local string, remote string) error {
 	logInfo("推送文件 [%s]: %s -> %s", serial, local, remote)
+
+	// Windows 路径需要引号包裹
+	if strings.Contains(local, " ") || strings.Contains(local, "\\") {
+		local = fmt.Sprintf("%q", local)
+	}
 
 	_, err := c.runDeviceCommand(ctx, serial, "push", local, remote)
 	if err != nil {
