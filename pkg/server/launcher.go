@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/yuan71058/go-scrcpy/pkg/adb"
 )
@@ -163,11 +164,37 @@ func (l *Launcher) startServer(ctx context.Context, serial string, args []string
 		return fmt.Errorf("执行启动命令失败: %w", err)
 	}
 
-	// 等待 server 启动（简单等待）
-	// 实际应该等待 PID 文件或端口就绪
+	// 等待 server 启动并监听 socket
 	logDebug("等待 server 启动...")
+	if err := l.waitForServer(ctx, serial, 5*time.Second); err != nil {
+		return fmt.Errorf("等待 server 启动超时: %w", err)
+	}
 
 	return nil
+}
+
+// waitForServer 等待 scrcpy-server 启动并创建 socket
+func (l *Launcher) waitForServer(ctx context.Context, serial string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		// 检查 server 进程是否存在
+		running, _ := l.ADB.IsServerRunning(ctx, serial)
+		if running {
+			logDebug("server 进程已启动")
+			// 额外等待 socket 就绪
+			time.Sleep(100 * time.Millisecond)
+			return nil
+		}
+
+		time.Sleep(100 * time.Millisecond)
+	}
+	return fmt.Errorf("server 未在 %v 内启动", timeout)
 }
 
 // Kill 终止指定设备上的 scrcpy-server

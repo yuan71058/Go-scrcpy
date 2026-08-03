@@ -54,15 +54,30 @@ type Connection struct {
 func NewConnection(videoPort, audioPort, controlPort int) (*Connection, error) {
 	logInfo("建立三通道连接: video=%d, audio=%d, control=%d", videoPort, audioPort, controlPort)
 
+	// 带重试的连接函数
+	dialWithRetry := func(port int) (net.Conn, error) {
+		var lastErr error
+		for i := 0; i < 5; i++ {
+			conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), 2*time.Second)
+			if err == nil {
+				return conn, nil
+			}
+			lastErr = err
+			logDebug("连接端口 %d 失败 (第 %d 次): %v", port, i+1, err)
+			time.Sleep(200 * time.Millisecond)
+		}
+		return nil, lastErr
+	}
+
 	// 连接视频通道
-	videoConn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", videoPort), 5*time.Second)
+	videoConn, err := dialWithRetry(videoPort)
 	if err != nil {
 		return nil, fmt.Errorf("连接视频通道失败: %w", err)
 	}
 	logDebug("视频通道已连接")
 
 	// 连接音频通道
-	audioConn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", audioPort), 5*time.Second)
+	audioConn, err := dialWithRetry(audioPort)
 	if err != nil {
 		videoConn.Close()
 		return nil, fmt.Errorf("连接音频通道失败: %w", err)
@@ -70,7 +85,7 @@ func NewConnection(videoPort, audioPort, controlPort int) (*Connection, error) {
 	logDebug("音频通道已连接")
 
 	// 连接控制通道
-	controlConn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", controlPort), 5*time.Second)
+	controlConn, err := dialWithRetry(controlPort)
 	if err != nil {
 		videoConn.Close()
 		audioConn.Close()
