@@ -58,8 +58,10 @@ func main() {
 	// -f h264: 输入格式为原始 H264
 	// -i pipe:0: 从 stdin 读取
 	// -framerate 0: 自动检测帧率
+	// 启动 ffplay (使用 data 目录下的 ffplay.exe)
+_ffplay := "E:\\SRC\\Scrcpy\\src\\Go-scrcpy\\data\\ffplay.exe"
 	windowTitle := fmt.Sprintf("scrcpy - %s (%s)", serial, handshake.GetDeviceName())
-	ffplay := exec.Command("ffplay",
+	cmd := exec.Command(_ffplay,
 		"-f", "h264",
 		"-i", "pipe:0",
 		"-framerate", "0",
@@ -67,13 +69,13 @@ func main() {
 		"-probesize", "32768",
 		"-window_title", windowTitle,
 	)
-	stdin, err := ffplay.StdinPipe()
+	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		log.Fatalf("创建 ffplay stdin 管道失败: %v", err)
 	}
 
-	if err := ffplay.Start(); err != nil {
-		log.Fatalf("启动 ffplay 失败: %v (请确认已安装 ffplay)", err)
+	if err := cmd.Start(); err != nil {
+		log.Fatalf("启动 ffplay 失败: %v (请确认 %s 存在)", err, _ffplay)
 	}
 	fmt.Println("ffplay 已启动，正在投屏...")
 
@@ -114,8 +116,8 @@ func main() {
 
 	// 清理
 	stdin.Close()
-	ffplay.Process.Kill()
-	ffplay.Wait()
+	cmd.Process.Kill()
+	cmd.Wait()
 	client.Close()
 	fmt.Println("已关闭")
 }
