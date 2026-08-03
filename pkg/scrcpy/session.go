@@ -67,9 +67,10 @@ func (s *DeviceSession) Connect(ctx context.Context, adbClient *adb.Client, opts
 		return fmt.Errorf("启动 server 失败: %w", err)
 	}
 
-	// 3. 等待 Android 服务端连接 (3 条连接: video, audio, control)
+	// 3. 等待 Android 服务端连接
+	// 根据选项确定连接数: video(必须) + audio(可选) + control(可选)
 	logInfo("等待 Android 服务端连接...")
-	err = listener.Accept(3, 10*time.Second)
+	err = listener.Accept(opts.Video, opts.Audio, opts.Control, 10*time.Second)
 	if err != nil {
 		listener.Close()
 		return fmt.Errorf("等待连接失败: %w", err)

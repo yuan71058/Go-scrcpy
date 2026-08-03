@@ -71,45 +71,68 @@ func (l *Listener) GetPort() int {
 }
 
 // Accept 等待 Android 服务端连接
-// count: 需要接受的连接数量 (1-3)
+// video, audio, control: 是否启用各通道
 // timeout: 超时时间
-func (l *Listener) Accept(count int, timeout time.Duration) error {
+func (l *Listener) Accept(video, audio, control bool, timeout time.Duration) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
 	deadline := time.Now().Add(timeout)
+	connIdx := 0
 
-	for i := 0; i < count; i++ {
+	// 视频通道（必须）
+	if video {
 		if time.Now().After(deadline) {
-			return fmt.Errorf("等待连接超时")
+			return fmt.Errorf("等待视频连接超时")
 		}
-
-		// 设置接受超时
 		ln := l.ln.(*net.TCPListener)
 		ln.SetDeadline(deadline)
-
 		conn, err := l.ln.Accept()
 		if err != nil {
-			return fmt.Errorf("接受第 %d 条连接失败: %w", i+1, err)
+			return fmt.Errorf("接受视频连接失败: %w", err)
 		}
+		l.videoConn = conn
+		logDebug("视频通道已连接: %s", conn.RemoteAddr())
+		connIdx++
+	}
 
-		switch i {
-		case 0:
-			l.videoConn = conn
-			logDebug("视频通道已连接: %s", conn.RemoteAddr())
-		case 1:
-			l.audioConn = conn
-			logDebug("音频通道已连接: %s", conn.RemoteAddr())
-		case 2:
-			l.controlConn = conn
-			logDebug("控制通道已连接: %s", conn.RemoteAddr())
+	// 音频通道（可选）
+	if audio {
+		if time.Now().After(deadline) {
+			return fmt.Errorf("等待音频连接超时")
 		}
+		ln := l.ln.(*net.TCPListener)
+		ln.SetDeadline(deadline)
+		conn, err := l.ln.Accept()
+		if err != nil {
+			return fmt.Errorf("接受音频连接失败: %w", err)
+		}
+		l.audioConn = conn
+		logDebug("音频通道已连接: %s", conn.RemoteAddr())
+		connIdx++
+	}
+
+	// 控制通道（可选）
+	if control {
+		if time.Now().After(deadline) {
+			return fmt.Errorf("等待控制连接超时")
+		}
+		ln := l.ln.(*net.TCPListener)
+		ln.SetDeadline(deadline)
+		conn, err := l.ln.Accept()
+		if err != nil {
+			return fmt.Errorf("接受控制连接失败: %w", err)
+		}
+		l.controlConn = conn
+		logDebug("控制通道已连接: %s", conn.RemoteAddr())
+		connIdx++
 	}
 
 	// 清除超时
 	ln := l.ln.(*net.TCPListener)
 	ln.SetDeadline(time.Time{})
 
+	logInfo("共接受 %d 条连接", connIdx)
 	return nil
 }
 
