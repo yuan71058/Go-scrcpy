@@ -1,4 +1,6 @@
 // 投屏示例
+// 将 scrcpy 视频流 pipe 到 ffplay 实现实时投屏
+// 同时保存 H264 文件到 data/live.h264
 package main
 
 import (
@@ -15,6 +17,8 @@ import (
 	"github.com/yuan71058/go-scrcpy/pkg/protocol"
 	"github.com/yuan71058/go-scrcpy/pkg/scrcpy"
 )
+
+const ffplayPath = `E:\SRC\Scrcpy\src\Go-scrcpy\data\ffplay.exe`
 
 func main() {
 	log.SetFlags(log.Ltime | log.Lmicroseconds)
@@ -46,27 +50,28 @@ func main() {
 	h := client.Handshake().(*protocol.Handshake)
 	fmt.Printf("已连接: %s, %dx%d\n", h.GetDeviceName(), h.GetDisplayWidth(), h.GetDisplayHeight())
 
+	// 保存 H264 文件
+	h264File, _ := os.Create("E:\\SRC\\Scrcpy\\src\\Go-scrcpy\\data\\live.h264")
+	defer h264File.Close()
+
 	// 启动 ffplay
-	cmd := exec.Command("E:\\SRC\\Scrcpy\\src\\Go-scrcpy\\data\\ffplay.exe",
-		"-loglevel", "warning",
+	cmd := exec.Command(ffplayPath,
 		"-sync", "video",
 		"-framedrop",
-		"-f", "h264",
-		"-i", "pipe:0",
 		"-window_title", fmt.Sprintf("scrcpy - %s", h.GetDeviceName()),
+		"-i", "pipe:0",
 	)
 	cmd.Stderr = os.Stdout
 	cmd.Stdout = os.Stderr
 
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		log.Fatalf("创建管道失败: %v", err)
-	}
+	stdin, _ := cmd.StdinPipe()
 
 	if err := cmd.Start(); err != nil {
 		log.Fatalf("启动 ffplay 失败: %v", err)
 	}
+
 	fmt.Println("投屏中... 按 Ctrl+C 退出")
+	fmt.Println("如果看不到窗口，请运行: ffplay -sync video data/live.h264")
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
@@ -74,22 +79,11 @@ func main() {
 	go func() {
 		count := 0
 		for frame := range client.VideoStream() {
-			if _, err := stdin.Write(frame.Data); err != nil {
-				fmt.Printf("写入失败: %v\n", err)
-				return
-			}
+			h264File.Write(frame.Data)
+			stdin.Write(frame.Data)
 			count++
-			if count <= 3 {
-				// 打印前3帧的前16字节，验证 H264 数据
-				n := 16
-				if len(frame.Data) < n {
-					n = len(frame.Data)
-				}
-				fmt.Printf("帧%d: %d bytes, 首字节: %x, config=%v key=%v\n",
-					count, len(frame.Data), frame.Data[:n], frame.Config, frame.Key)
-			}
 			if count%100 == 0 {
-				fmt.Printf("已写入 %d 帧\n", count)
+				fmt.Printf("已投屏 %d 帧\n", count)
 			}
 		}
 		fmt.Printf("视频流结束，共 %d 帧\n", count)
@@ -105,4 +99,5 @@ func main() {
 	cmd.Process.Kill()
 	cmd.Wait()
 	client.Close()
+	fmt.Println("H264 已保存到 data/live.h264")
 }
