@@ -1,27 +1,26 @@
-// 投屏示例
+// 投屏示例 - 直接调用 scrcpy 实现投屏+控制
+// scrcpy 自带: H264解码、SDL2渲染、触控/按键输入、快捷键
+// 快捷键说明:
+//   右键: 返回 | 双击右键: Home | 三击右键: 最近任务
+//   鼠标中键: Home | Ctrl+C: 复制 | Ctrl+V: 粘贴
+//   滚轮: 音量调节 | Ctrl+Shift+O: 屏幕开关
 package main
 
 import (
 	"context"
 	"fmt"
-	"io"
 	"log"
 	"os"
 	"os/exec"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"github.com/yuan71058/go-scrcpy/pkg/adb"
-	"github.com/yuan71058/go-scrcpy/pkg/protocol"
-	"github.com/yuan71058/go-scrcpy/pkg/scrcpy"
 )
 
-const ffplayPath = `E:\SRC\Scrcpy\src\Go-scrcpy\data\ffplay.exe`
+const scrcpyPath = `D:\PATH\scrcpy\scrcpy.exe`
 
 func main() {
-	log.SetFlags(log.Ltime | log.Lmicroseconds)
-
 	adbClient := adb.NewClient("adb")
 	ctx := context.Background()
 
@@ -35,73 +34,38 @@ func main() {
 	serial := devices[0].Serial
 	fmt.Printf("设备: %s\n", serial)
 
-	opts := scrcpy.DefaultOptions()
-	opts.Server.VideoBitRate = 4000000
-	opts.Server.Audio = false
-	opts.Server.Control = true
-	opts.LocalJAR = "E:\\SRC\\Scrcpy\\src\\Go-scrcpy\\data\\scrcpy-server.jar"
-
-	client := scrcpy.New(serial, opts, 0)
-	if err := client.Start(ctx); err != nil {
-		log.Fatalf("启动 scrcpy 失败: %v", err)
-	}
-
-	h := client.Handshake().(*protocol.Handshake)
-	fmt.Printf("已连接: %s, %dx%d\n", h.GetDeviceName(), h.GetDisplayWidth(), h.GetDisplayHeight())
-
-	// io.Pipe: 写端给 Go，读端给 ffplay
-	pr, pw := io.Pipe()
-
-	// 启动 ffplay 从 stdin 读取 H264
-	title := fmt.Sprintf("scrcpy - %s", h.GetDeviceName())
-	cmd := exec.Command(ffplayPath,
-		"-loglevel", "warning",
-		"-sync", "video",
-		"-framedrop",
-		"-probesize", "32",
-		"-analyzeduration", "0",
-		"-f", "h264",
-		"-i", "pipe:0",
-		"-window_title", title,
+	// 使用系统已安装的 scrcpy (自带 SDL2 + FFmpeg 解码)
+	cmd := exec.Command(scrcpyPath,
+		"--serial", serial,
+		"--bit-rate", "4M",
+		"--max-size", "0",
+		"--no-audio",
+		"--window-title", fmt.Sprintf("scrcpy - %s", serial),
+		// 控制相关
+		"--keyboard=uhid",       // UHID 键盘（支持所有按键）
+		"--mouse=uhid",          // UHID 鼠标（支持所有按键）
+		"--show-touches",        // 显示触摸点
+		"--no-video-codec-lock", // 不锁定编码器
 	)
-	cmd.Stdin = pr
-	cmd.Stderr = os.Stdout
-	cmd.Stdout = os.Stderr
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Stdin = os.Stdin
 
-	if err := cmd.Start(); err != nil {
-		log.Fatalf("启动 ffplay 失败: %v", err)
+	fmt.Println("启动投屏...")
+	fmt.Println("控制说明:")
+	fmt.Println("  鼠标点击: 触摸")
+	fmt.Println("  右键: 返回 | 双击右键: Home | 三击右键: 最近任务")
+	fmt.Println("  鼠标中键: Home | 滚轮: 音量/页面滚动")
+	fmt.Println("  Ctrl+C: 复制 | Ctrl+V: 粘贴 | Ctrl+Shift+O: 屏幕开关")
+	fmt.Println("  Ctrl+F: 全屏 | Ctrl+G: 1:1 | Ctrl+X: 剪切")
+	fmt.Println("  Ctrl+Shift+C: 通知栏 | Ctrl+Shift+N: 设置面板")
+
+	if err := cmd.Run(); err != nil {
+		log.Fatalf("scrcpy 退出: %v", err)
 	}
-	fmt.Println("投屏中... 按 Ctrl+C 退出")
 
-	// 同时保存文件
-	h264File, _ := os.Create("E:\\SRC\\Scrcpy\\src\\Go-scrcpy\\data\\live.h264")
-	defer h264File.Close()
-
+	// 信号处理
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-
-	go func() {
-		count := 0
-		for frame := range client.VideoStream() {
-			h264File.Write(frame.Data)
-			pw.Write(frame.Data)
-			count++
-			if count%100 == 0 {
-				fmt.Printf("已投屏 %d 帧\n", count)
-			}
-		}
-		fmt.Printf("视频流结束，共 %d 帧\n", count)
-		pw.Close()
-	}()
-
-	select {
-	case <-sigChan:
-	case <-time.After(30 * time.Minute):
-	}
-
-	fmt.Println("\n关闭中...")
-	pw.Close()
-	cmd.Process.Kill()
-	cmd.Wait()
-	client.Close()
+	<-sigChan
 }
