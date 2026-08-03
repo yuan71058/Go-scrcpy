@@ -41,6 +41,7 @@ func main() {
 			opts := scrcpy.DefaultOptions()
 			opts.Server.VideoBitRate = 2000000 // 2Mbps
 			opts.Server.Audio = false
+			opts.LocalJAR = "../../data/scrcpy-server.jar"
 
 			client, err := mc.Add(serial, opts)
 			if err != nil {

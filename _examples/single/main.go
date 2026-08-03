@@ -34,6 +34,7 @@ func main() {
 	opts := scrcpy.DefaultOptions()
 	opts.Server.VideoBitRate = 4000000 // 4Mbps
 	opts.Server.Audio = false          // 暂不处理音频
+	opts.LocalJAR = "../../data/scrcpy-server.jar"
 
 	client := scrcpy.New(serial, opts)
 

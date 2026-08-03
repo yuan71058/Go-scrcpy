@@ -32,6 +32,7 @@ func main() {
 	adbClient := adb.NewClient("adb")
 	opts := scrcpy.DefaultOptions()
 	opts.Server.Audio = false
+	opts.LocalJAR = "../../data/scrcpy-server.jar"
 
 	client := scrcpy.New(serial, opts)
 
