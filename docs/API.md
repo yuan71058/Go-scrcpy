@@ -195,7 +195,7 @@ func (o Options) WithControlEnabled(enabled bool) Options
 #### New
 
 ```go
-func New(serial string, opts Options) *Client
+func New(serial string, opts Options, listenPort int) *Client
 ```
 
 创建新的单设备客户端。
@@ -203,13 +203,14 @@ func New(serial string, opts Options) *Client
 **参数：**
 - `serial`: 设备序列号
 - `opts`: 启动选项
+- `listenPort`: PC 监听端口 (0 = 自动分配)
 
 **返回值：** Client 指针
 
 **示例：**
 ```go
 opts := scrcpy.DefaultOptions()
-client := scrcpy.New("emulator-5554", opts)
+client := scrcpy.New("emulator-5554", opts, 27183)
 ```
 
 #### Start
@@ -271,22 +272,22 @@ func (c *Client) Serial() string
 #### DeviceInfo
 
 ```go
-func (c *Client) DeviceInfo() interface{}
+func (c *Client) DeviceInfo() *types.DeviceInfo
 ```
 
 获取设备信息。
 
-**返回值：** 设备信息接口
+**返回值：** 设备信息指针
 
 #### Handshake
 
 ```go
-func (c *Client) Handshake() interface{}
+func (c *Client) Handshake() *protocol.Handshake
 ```
 
 获取握手数据。
 
-**返回值：** 握手数据接口
+**返回值：** 握手数据指针
 
 #### Close
 
@@ -496,6 +497,158 @@ func (c *Client) ResetVideo() error
 
 ---
 
+### DeviceSession 结构体
+
+设备会话，管理单个设备的连接、流和控制。
+
+#### NewSession
+
+```go
+func NewSession(serial string) *DeviceSession
+```
+
+创建设备会话。
+
+**参数：**
+- `serial`: 设备序列号
+
+**返回值：** DeviceSession 指针
+
+#### Connect
+
+```go
+func (s *DeviceSession) Connect(ctx context.Context, adbClient *adb.Client, opts server.Options, localJAR string, listenPort int) error
+```
+
+建立与设备的连接 (使用 reverse tunnel 模式)。
+
+**参数：**
+- `ctx`: 上下文
+- `adbClient`: ADB 客户端
+- `opts`: server 启动参数
+- `localJAR`: 本地 scrcpy-server.jar 路径
+- `listenPort`: PC 监听端口
+
+**返回值：** 错误信息
+
+#### Start
+
+```go
+func (s *DeviceSession) Start(ctx context.Context) error
+```
+
+启动会话，开始读取视频帧、音频数据和设备消息。
+
+**参数：**
+- `ctx`: 上下文
+
+**返回值：** 错误信息
+
+#### VideoStream
+
+```go
+func (s *DeviceSession) VideoStream() <-chan *video.DecodedFrame
+```
+
+返回视频帧通道。
+
+**返回值：** 只读通道
+
+#### AudioStream
+
+```go
+func (s *DeviceSession) AudioStream() <-chan *audio.AudioData
+```
+
+返回音频数据通道。
+
+**返回值：** 只读通道
+
+#### SendControl
+
+```go
+func (s *DeviceSession) SendControl(msg []byte) error
+```
+
+发送控制消息。
+
+**参数：**
+- `msg`: 控制消息
+
+**返回值：** 错误信息
+
+#### GetDeviceInfo
+
+```go
+func (s *DeviceSession) GetDeviceInfo() *types.DeviceInfo
+```
+
+获取设备信息。
+
+**返回值：** 设备信息指针
+
+#### GetHandshake
+
+```go
+func (s *DeviceSession) GetHandshake() *protocol.Handshake
+```
+
+获取握手数据。
+
+**返回值：** 握手数据指针
+
+#### GetSerial
+
+```go
+func (s *DeviceSession) GetSerial() string
+```
+
+获取设备序列号。
+
+**返回值：** 序列号字符串
+
+#### GetClipboard
+
+```go
+func (s *DeviceSession) GetClipboard() *control.Clipboard
+```
+
+获取剪贴板管理器。
+
+**返回值：** 剪贴板管理器指针
+
+#### GetFilePusher
+
+```go
+func (s *DeviceSession) GetFilePusher() *control.FilePusher
+```
+
+获取文件推送器。
+
+**返回值：** 文件推送器指针
+
+#### Close
+
+```go
+func (s *DeviceSession) Close() error
+```
+
+关闭会话。
+
+**返回值：** 错误信息
+
+#### IsClosed
+
+```go
+func (s *DeviceSession) IsClosed() bool
+```
+
+检查会话是否已关闭。
+
+**返回值：** 是否已关闭
+
+---
+
 ### MultiClient 结构体
 
 多设备管理器，支持多个设备同时接入控制。
@@ -519,7 +672,7 @@ func NewMulti(adbClient *adb.Client) *MultiClient
 func (m *MultiClient) Add(serial string, opts Options) (*Client, error)
 ```
 
-添加设备。
+添加设备。自动查找可用端口并启动连接。
 
 **参数：**
 - `serial`: 设备序列号
@@ -636,7 +789,7 @@ type VideoFrameWithSerial struct {
 func WatchDevices(adbClient *adb.Client, onAdd func(serial string), onRemove func(serial string)) *adb.DeviceTracker
 ```
 
-监听设备上下线。
+监听设备上下线（便捷包装器）。
 
 **参数：**
 - `adbClient`: ADB 客户端
@@ -644,6 +797,20 @@ func WatchDevices(adbClient *adb.Client, onAdd func(serial string), onRemove fun
 - `onRemove`: 设备离线回调
 
 **返回值：** 设备跟踪器
+
+**使用示例：**
+```go
+watcher := scrcpy.WatchDevices(adbClient,
+    func(serial string) {
+        fmt.Printf("设备上线: %s\n", serial)
+    },
+    func(serial string) {
+        fmt.Printf("设备离线: %s\n", serial)
+    },
+)
+ctx := context.Background()
+watcher.Start(ctx)
+```
 
 #### GetDevices
 
@@ -808,6 +975,40 @@ func (c *Client) RemoveAllForwards(ctx context.Context, serial string) error
 
 ---
 
+### 反向隧道
+
+#### Reverse
+
+```go
+func (c *Client) Reverse(ctx context.Context, serial string, remoteAbstract string, localPort int) error
+```
+
+建立 ADB 反向隧道。允许 Android 设备主动连接 PC。
+
+**参数：**
+- `ctx`: 上下文
+- `serial`: 设备序列号
+- `remoteAbstract`: 设备上的 abstract socket 名称 (如 "scrcpy")
+- `localPort`: PC 本地监听端口
+
+**返回值：** 错误信息
+
+#### RemoveAllReverses
+
+```go
+func (c *Client) RemoveAllReverses(ctx context.Context, serial string) error
+```
+
+移除指定设备的所有反向隧道。
+
+**参数：**
+- `ctx`: 上下文
+- `serial`: 设备序列号
+
+**返回值：** 错误信息
+
+---
+
 ### 文件操作
 
 #### Push
@@ -925,7 +1126,7 @@ func (t *DeviceTracker) OnAdd(fn func(device types.Device))
 设置设备上线回调。
 
 **参数：**
-- `fn`: 回调函数
+- `fn`: 回调函数，接收 `types.Device` 参数
 
 #### OnRemove
 
@@ -936,7 +1137,18 @@ func (t *DeviceTracker) OnRemove(fn func(device types.Device))
 设置设备离线回调。
 
 **参数：**
-- `fn`: 回调函数
+- `fn`: 回调函数，接收 `types.Device` 参数
+
+#### OnChange
+
+```go
+func (t *DeviceTracker) OnChange(fn func(device types.Device))
+```
+
+设置设备状态变化回调。
+
+**参数：**
+- `fn`: 回调函数，接收 `types.Device` 参数
 
 #### Start
 
@@ -981,7 +1193,6 @@ Server 管理包，管理 scrcpy-server 的启动、配置和生命周期。
 const (
     ServerVersion = "4.1"                    // scrcpy-server 版本号
     ServerPath    = "/data/local/tmp/scrcpy-server.jar" // 设备上的 JAR 路径
-    PIDFile       = "/data/local/tmp/go_scrcpy.pid"     // PID 文件路径
 )
 ```
 
@@ -1071,10 +1282,8 @@ func (o *Options) ToArgs() []string
 
 ```go
 type ServerConn struct {
-    Serial      string // 设备序列号
-    VideoPort   int    // 视频通道本地端口
-    AudioPort   int    // 音频通道本地端口
-    ControlPort int    // 控制通道本地端口
+    Serial string // 设备序列号
+    Port   int    // PC 监听端口
 }
 ```
 
@@ -1104,7 +1313,7 @@ func NewLauncher(adbClient *adb.Client) *Launcher
 #### Start
 
 ```go
-func (l *Launcher) Start(ctx context.Context, serial string, opts Options, localJAR string) (*ServerConn, error)
+func (l *Launcher) Start(ctx context.Context, serial string, opts Options, localJAR string, listenPort int) (*ServerConn, error)
 ```
 
 启动 scrcpy-server 并建立连接。
@@ -1114,6 +1323,7 @@ func (l *Launcher) Start(ctx context.Context, serial string, opts Options, local
 - `serial`: 设备序列号
 - `opts`: server 启动参数
 - `localJAR`: 本地 scrcpy-server.jar 路径（为空则使用设备上已有的）
+- `listenPort`: PC 监听端口
 
 **返回值：** 连接信息和错误信息
 
@@ -1151,6 +1361,67 @@ func (l *Launcher) IsRunning(ctx context.Context, serial string) (bool, error)
 
 传输层包，管理与 scrcpy-server 的三通道 socket 连接。
 
+### Listener 结构体
+
+Listener 管理 reverse tunnel 监听器。Android 服务端主动连接 PC。
+
+```go
+type Listener struct {
+    // 未导出字段
+}
+```
+
+#### NewListener
+
+```go
+func NewListener(port int) (*Listener, error)
+```
+
+创建 reverse tunnel 监听器。
+
+**参数：**
+- `port`: PC 监听端口
+
+**返回值：** Listener 和错误信息
+
+#### GetPort
+
+```go
+func (l *Listener) GetPort() int
+```
+
+获取监听端口（可能与输入端口不同，当 port=0 时）。
+
+**返回值：** 实际监听端口
+
+#### Accept
+
+```go
+func (l *Listener) Accept(video, audio, control bool, timeout time.Duration) error
+```
+
+等待 Android 服务端连接。
+
+**参数：**
+- `video`: 是否启用视频通道
+- `audio`: 是否启用音频通道
+- `control`: 是否启用控制通道
+- `timeout`: 超时时间
+
+**返回值：** 错误信息
+
+#### Close
+
+```go
+func (l *Listener) Close() error
+```
+
+关闭监听器和所有连接。
+
+**返回值：** 错误信息
+
+---
+
 ### Connection 结构体
 
 ```go
@@ -1161,20 +1432,18 @@ type Connection struct {
 }
 ```
 
-#### NewConnection
+#### NewConnectionFromListener
 
 ```go
-func NewConnection(videoPort, audioPort, controlPort int) (*Connection, error)
+func NewConnectionFromListener(l *Listener) *Connection
 ```
 
-创建三通道连接。
+从 Listener 创建 Connection。
 
 **参数：**
-- `videoPort`: 视频通道本地端口
-- `audioPort`: 音频通道本地端口
-- `controlPort`: 控制通道本地端口
+- `l`: 监听器
 
-**返回值：** 连接和错误信息
+**返回值：** Connection 指针
 
 #### Close
 
