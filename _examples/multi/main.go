@@ -51,7 +51,7 @@ func main() {
 			// 启动视频接收
 			go func() {
 				frameCount := 0
-				for frame := range client.VideoStream() {
+				for range client.VideoStream() {
 					frameCount++
 					if frameCount%100 == 0 {
 						fmt.Printf("[%s] 已接收 %d 帧\n", serial, frameCount)
