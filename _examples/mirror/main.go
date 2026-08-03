@@ -18,7 +18,7 @@ import (
 	"github.com/yuan71058/go-scrcpy/pkg/adb"
 )
 
-const scrcpyPath = `D:\PATH\scrcpy\scrcpy.exe`
+const scrcpyPath = `E:\SRC\Scrcpy\src\Go-scrcpy\data\scrcpy-win64-v4.1\scrcpy.exe`
 
 func main() {
 	adbClient := adb.NewClient("adb")
