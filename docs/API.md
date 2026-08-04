@@ -282,12 +282,18 @@ func (c *Client) DeviceInfo() *types.DeviceInfo
 #### Handshake
 
 ```go
-func (c *Client) Handshake() *protocol.Handshake
+func (c *Client) Handshake() interface{}
 ```
 
-获取握手数据。
+获取握手数据（返回 `*protocol.Handshake` 需类型断言）。
 
-**返回值：** 握手数据指针
+**返回值：** 握手数据接口，需类型断言为 `*protocol.Handshake`
+
+**示例：**
+```go
+hs := client.Handshake().(*protocol.Handshake)
+fmt.Printf("设备: %s, 尺寸: %dx%d\n", hs.GetDeviceName(), hs.GetDisplayWidth(), hs.GetDisplayHeight())
+```
 
 #### Close
 

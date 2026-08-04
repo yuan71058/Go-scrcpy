@@ -46,7 +46,6 @@ func main() {
 			go func() {
 				frameCount := 0
 				lastReport := time.Now()
-				testPhase := 0
 
 				for frame := range client.VideoStream() {
 					frameCount++
@@ -58,40 +57,6 @@ func main() {
 							serial, fps, len(frame.Data), frame.Config, frame.Key)
 						frameCount = 0
 						lastReport = time.Now()
-					}
-
-					// 3秒后执行一系列控制测试
-					if frameCount == 1 && time.Since(lastReport) < 100*time.Millisecond {
-						testPhase++
-						go func(phase int) {
-							time.Sleep(3 * time.Second)
-							switch phase {
-							case 1:
-								fmt.Printf("[%s] 测试: 展开通知栏\n", serial)
-								client.ExpandNotificationPanel()
-							case 2:
-								fmt.Printf("[%s] 测试: 收起通知栏\n", serial)
-								client.CollapsePanels()
-							case 3:
-								fmt.Printf("[%s] 测试: 按 HOME 键\n", serial)
-								client.Home()
-							case 4:
-								fmt.Printf("[%s] 测试: 按 BACK 键\n", serial)
-								client.Back()
-							case 5:
-								fmt.Printf("[%s] 测试: 按 POWER 键\n", serial)
-								client.Power()
-							case 6:
-								fmt.Printf("[%s] 测试: 按 VOLUME_UP\n", serial)
-								client.VolumeUp()
-							case 7:
-								fmt.Printf("[%s] 测试: 按 VOLUME_DOWN\n", serial)
-								client.VolumeDown()
-							case 8:
-								fmt.Printf("[%s] 测试: 打开最近任务\n", serial)
-								client.Menu()
-							}
-						}(testPhase)
 					}
 				}
 				fmt.Printf("[%s] 视频流结束\n", serial)

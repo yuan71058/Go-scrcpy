@@ -83,13 +83,7 @@ func main() {
 		time.Sleep(5 * time.Second)
 
 		fmt.Println("截取截图...")
-		data, err := screenshot.Capture(nil, "png")
-		if err != nil {
-			log.Printf("截取截图失败: %v", err)
-			return
-		}
-
-		if err := screenshot.SaveToFile(data, "screenshot.png", "png"); err != nil {
+		if err := screenshot.SaveToFile(nil, "screenshot.png", "png"); err != nil {
 			log.Printf("保存截图失败: %v", err)
 			return
 		}

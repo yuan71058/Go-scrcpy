@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"time"
 	"syscall"
 
 	"github.com/yuan71058/go-scrcpy/pkg/adb"
@@ -64,34 +65,18 @@ func main() {
 		fmt.Printf("视频流结束，共接收 %d 帧\n", frameCount)
 	}()
 
-	// 模拟发送按键
+	// 模拟发送按键（3秒后自动发送）
 	go func() {
-		// 等待 3 秒后按 HOME 键
-		fmt.Println("等待 3 秒...")
+		timer := time.NewTimer(3 * time.Second)
+		defer timer.Stop()
 		select {
 		case <-sigChan:
 			return
-		case <-func() <-chan struct{} {
-			ch := make(chan struct{})
-			go func() {
-				// 简单等待
-				for i := 0; i < 30; i++ {
-					select {
-					case <-sigChan:
-						close(ch)
-						return
-					default:
-					}
-				}
-				close(ch)
-			}()
-			return ch
-		}():
-		}
-
-		fmt.Println("发送 HOME 键...")
-		if err := client.Home(); err != nil {
-			log.Printf("发送 HOME 键失败: %v", err)
+		case <-timer.C:
+			fmt.Println("发送 HOME 键...")
+			if err := client.Home(); err != nil {
+				log.Printf("发送 HOME 键失败: %v", err)
+			}
 		}
 	}()
 

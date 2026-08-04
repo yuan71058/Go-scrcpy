@@ -76,6 +76,7 @@ import (
     "runtime"
 
     "github.com/yuan71058/go-scrcpy/pkg/input"
+    "github.com/yuan71058/go-scrcpy/pkg/protocol"
     "github.com/yuan71058/go-scrcpy/pkg/render"
     "github.com/yuan71058/go-scrcpy/pkg/scrcpy"
 )
