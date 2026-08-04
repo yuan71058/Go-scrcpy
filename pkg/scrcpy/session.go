@@ -330,7 +330,8 @@ func (s *DeviceSession) GetFilePusher() *control.FilePusher {
 	return s.filePusher
 }
 
-// SendControl 发送控制消息
+// SendControl 发送控制消息（非阻塞，通过 channel 异步发送到 writeControlLoop）
+// 避免直接在调用 goroutine（如主线程）中写 socket 导致阻塞
 func (s *DeviceSession) SendControl(msg []byte) error {
 	s.mu.Lock()
 	if s.closed {
@@ -339,12 +340,14 @@ func (s *DeviceSession) SendControl(msg []byte) error {
 	}
 	s.mu.Unlock()
 
-	if s.conn == nil || s.conn.ControlConn == nil {
-		return fmt.Errorf("控制连接未建立")
+	select {
+	case s.controlChan <- msg:
+	default:
+		// 控制通道满，丢弃（非阻塞，避免卡死主线程）
+		logDebug("控制通道满，丢弃消息 [%s]", s.serial)
 	}
 
-	writer := transport.NewProtocolWriter(s.conn.ControlConn)
-	return writer.Write(msg)
+	return nil
 }
 
 

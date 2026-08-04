@@ -62,7 +62,66 @@ func main() {
 }
 ```
 
-### 多设备并发
+### 投屏窗口 (SDL3)
+
+使用 SDL3 渲染视频并支持鼠标/键盘输入：
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+    "runtime"
+
+    "github.com/yuan71058/go-scrcpy/pkg/input"
+    "github.com/yuan71058/go-scrcpy/pkg/render"
+    "github.com/yuan71058/go-scrcpy/pkg/scrcpy"
+)
+
+func main() {
+    opts := scrcpy.DefaultOptions()
+    opts.Server.VideoBitRate = 4000000
+    opts.Server.Audio = false
+    opts.Server.Control = true
+
+    client := scrcpy.New("DEVICE_SERIAL", opts, 27183)
+    ctx := context.Background()
+    if err := client.Start(ctx); err != nil {
+        log.Fatal(err)
+    }
+    defer client.Close()
+
+    hs := client.Handshake().(*protocol.Handshake)
+    displayW := int(hs.GetDisplayWidth())
+    displayH := int(hs.GetDisplayHeight())
+
+    // 必须在 SDL 操作前锁定 OS 线程（Windows 要求）
+    render.InitSDL()
+    runtime.LockOSThread()
+
+    // 解码 goroutine
+    go func() {
+        decoder, _ := render.NewH264Decoder()
+        decoder.SetSize(displayW, displayH)
+        for frame := range client.VideoStream() {
+            yuv, w, h, _ := decoder.Decode(frame.Data)
+            if yuv != nil {
+                // 渲染...
+            }
+        }
+    }()
+
+    // 主线程事件循环
+    for {
+        evType, evData := render.PollEvent()
+        // 处理事件...
+    }
+}
+```
+
+完整示例见 [_examples/mirror](_examples/mirror/)。
 
 ```go
 package main
@@ -278,6 +337,7 @@ go-scrcpy/
 │   ├── record/           # 录制和截图
 │   └── scrcpy/           # 核心 API
 ├── _examples/            # 使用示例
+│   ├── mirror/           # SDL3 投屏窗口示例
 │   ├── single/           # 单设备示例
 │   ├── multi/            # 多设备示例
 │   ├── control/          # 控制示例

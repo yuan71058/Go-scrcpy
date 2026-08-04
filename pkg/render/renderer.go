@@ -24,6 +24,7 @@ var (
 	procRenderTexture *syscall.LazyProc
 	procRenderPresent *syscall.LazyProc
 	procPollEvent     *syscall.LazyProc
+	procWaitEvent     *syscall.LazyProc
 	procDelay         *syscall.LazyProc
 	procGetTicks      *syscall.LazyProc
 	procGetWindowSize *syscall.LazyProc
@@ -33,7 +34,6 @@ var (
 	procFree          *syscall.LazyProc
 	procGetError      *syscall.LazyProc
 	procPushEvent     *syscall.LazyProc
-	procWaitEvent     *syscall.LazyProc
 )
 
 const (
@@ -175,20 +175,21 @@ func PushEvent(eventType uint32, data1 uintptr) bool {
 	return ret != 0
 }
 
-// WaitEvent 等待 SDL 事件，返回事件类型和数据
-func WaitEvent() (uint32, []byte) {
+// PollEvent 轮询 SDL 事件，返回事件类型和数据
+func PollEvent() (uint32, []byte) {
 	event := make([]byte, 128)
-	ret, _, _ := procWaitEvent.Call(uintptr(unsafe.Pointer(&event[0])))
+	ret, _, _ := procPollEvent.Call(uintptr(unsafe.Pointer(&event[0])))
 	if ret == 0 {
 		return 0, nil
 	}
 	return *(*uint32)(unsafe.Pointer(&event[0])), event
 }
 
-// PollEvent 轮询 SDL 事件，返回事件类型和数据
-func PollEvent() (uint32, []byte) {
+// WaitEvent 阻塞等待 SDL 事件，返回事件类型和数据
+// 参考原版 scrcpy：主线程使用 SDL_WaitEvent 阻塞等待，避免忙等导致 Windows 消息泵饥饿
+func WaitEvent() (uint32, []byte) {
 	event := make([]byte, 128)
-	ret, _, _ := procPollEvent.Call(uintptr(unsafe.Pointer(&event[0])))
+	ret, _, _ := procWaitEvent.Call(uintptr(unsafe.Pointer(&event[0])))
 	if ret == 0 {
 		return 0, nil
 	}
@@ -282,6 +283,7 @@ func init() {
 	procRenderTexture = sdl3.NewProc("SDL_RenderTexture")
 	procRenderPresent = sdl3.NewProc("SDL_RenderPresent")
 	procPollEvent = sdl3.NewProc("SDL_PollEvent")
+		procWaitEvent = sdl3.NewProc("SDL_WaitEvent")
 	procDelay = sdl3.NewProc("SDL_Delay")
 	procGetTicks = sdl3.NewProc("SDL_GetTicks")
 	procGetWindowSize = sdl3.NewProc("SDL_GetWindowSize")
@@ -291,5 +293,4 @@ func init() {
 	procFree = sdl3.NewProc("SDL_free")
 	procGetError = sdl3.NewProc("SDL_GetError")
 	procPushEvent = sdl3.NewProc("SDL_PushEvent")
-	procWaitEvent = sdl3.NewProc("SDL_WaitEvent")
 }

@@ -132,23 +132,27 @@ func (d *H264Decoder) open() {
 
 // Decode 解码 H264 数据，返回 YUV420P 格式数据
 func (d *H264Decoder) Decode(data []byte) ([]byte, int, int, error) {
+	// 先检查状态，减少锁持有时间
 	d.mu.Lock()
-	defer d.mu.Unlock()
-
 	if d.closed {
+		d.mu.Unlock()
 		return nil, 0, 0, fmt.Errorf("解码器已关闭")
 	}
 	if len(data) == 0 {
+		d.mu.Unlock()
 		return nil, 0, 0, nil
 	}
 
 	if !d.opened {
 		d.open()
 		if !d.opened {
+			d.mu.Unlock()
 			return nil, 0, 0, fmt.Errorf("打开解码器失败")
 		}
 	}
+	d.mu.Unlock()
 
+	// 解码过程不需要持锁（单线程调用）
 	buf, _, _ := procMalloc.Call(uintptr(len(data)))
 	if buf == 0 {
 		return nil, 0, 0, nil
@@ -189,7 +193,10 @@ func (d *H264Decoder) Decode(data []byte) ([]byte, int, int, error) {
 	}
 
 	// 使用已设置的宽高（从 handshake 获取）
-	if d.width <= 0 || d.height <= 0 {
+	d.mu.Lock()
+	w, h := d.width, d.height
+	d.mu.Unlock()
+	if w <= 0 || h <= 0 {
 		return nil, 0, 0, nil
 	}
 
@@ -200,18 +207,18 @@ func (d *H264Decoder) Decode(data []byte) ([]byte, int, int, error) {
 	uStride := int(*(*int32)(unsafe.Pointer(d.frame + 68)))
 	vStride := int(*(*int32)(unsafe.Pointer(d.frame + 72)))
 
-	ySize := d.width * d.height
-	uvW := (d.width + 1) / 2
-	uvH := (d.height + 1) / 2
+	ySize := w * h
+	uvW := (w + 1) / 2
+	uvH := (h + 1) / 2
 	uvSize := uvW * uvH
 	totalSize := ySize + uvSize*2
 
 	yuv := make([]byte, totalSize)
 
 	if yPtr != 0 {
-		for i := 0; i < d.height; i++ {
-			src := unsafe.Slice((*byte)(unsafe.Pointer(yPtr+uintptr(i*yStride))), d.width)
-			copy(yuv[i*d.width:], src)
+		for i := 0; i < h; i++ {
+			src := unsafe.Slice((*byte)(unsafe.Pointer(yPtr+uintptr(i*yStride))), w)
+			copy(yuv[i*w:], src)
 		}
 	}
 	if uPtr != 0 {
@@ -227,7 +234,7 @@ func (d *H264Decoder) Decode(data []byte) ([]byte, int, int, error) {
 		}
 	}
 
-	return yuv, d.width, d.height, nil
+	return yuv, w, h, nil
 }
 
 // SetSize 设置视频尺寸

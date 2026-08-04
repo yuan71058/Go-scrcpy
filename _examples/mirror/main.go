@@ -1,4 +1,4 @@
-// 投屏示例 - 使用项目自己的 Go 代码实现投屏+控制
+// 投屏示例
 package main
 
 import (
@@ -8,7 +8,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sync"
+	"runtime"
+	"sync/atomic"
 
 	"github.com/yuan71058/go-scrcpy/pkg/adb"
 	"github.com/yuan71058/go-scrcpy/pkg/input"
@@ -89,7 +90,7 @@ func main() {
 	opts.Server.VideoBitRate = 4000000
 	opts.Server.Audio = false
 	opts.Server.Control = true
-	opts.Server.VideoCodec = "h264" // 强制 H264 编码，FFmpeg 解码器只支持 H264
+	opts.Server.VideoCodec = "h264"
 
 	listenPort := 27183
 	client := scrcpy.New(serial, opts, listenPort)
@@ -120,16 +121,17 @@ func main() {
 
 	fmt.Println("连接成功！启动投屏窗口...")
 
-	// 必须先在主线程初始化 SDL，否则事件循环会失败
 	render.InitSDL()
+	// 锁定当前 goroutine 到 OS 线程，确保 SDL 窗口创建和事件处理在同一线程
+	// 参考原版 scrcpy：SDL 窗口必须在其创建线程上处理消息
+	runtime.LockOSThread()
 
+	// 用 atomic 同步帧数据，避免锁
 	var (
-		mu          sync.Mutex
-		sdl         *render.SDLRenderer
-		frameData   []byte
-		frameW      int
-		frameH      int
-		lastW, lastH int
+		frameData atomic.Value // []byte
+		frameW    atomic.Int32
+		frameH    atomic.Int32
+		newFrame  atomic.Bool
 	)
 
 	// 视频解码 goroutine
@@ -139,95 +141,99 @@ func main() {
 			if err != nil || nv12 == nil {
 				continue
 			}
-
-			mu.Lock()
-			frameData = nv12
-			frameW = w
-			frameH = h
-			mu.Unlock()
-		// 通知主线程有新帧（原版 scrcpy 方式）
-		render.PushEvent(render.SC_EVENT_NEW_FRAME, 0)
+			frameData.Store(nv12)
+			frameW.Store(int32(w))
+			frameH.Store(int32(h))
+			newFrame.Store(true)
 		}
 	}()
 
-	// 主线程事件循环：使用 WaitEvent（原版 scrcpy 方式，修复 PushEvent 后可用）
-	frameCount := 0
+	// 主线程事件循环
+	// 使用 PollEvent 轮询 + Delay(16) 避免忙等导致 Windows 消息泵饥饿
+	// 原版 scrcpy 使用 SDL_WaitEvent 阻塞等待 + PushEvent 唤醒，但 Go 窗口在首帧前已显示
+	// 若用 WaitEvent 会导致首帧到达前窗口无响应，因此改用 PollEvent + 适当延迟
+	var (
+		sdl        *render.SDLRenderer
+		lastW      int32
+		lastH      int32
+		frameCount int
+	)
 	for {
-		evType, evData := render.WaitEvent()
-		switch evType {
-		case 0:
-			// WaitEvent 失败，短暂延迟后重试
-			render.Delay(1)
-			continue
-
-		case render.SDL_EVENT_QUIT, render.SDL_EVENT_WINDOW_CLOSE_REQUESTED:
-			fmt.Println("窗口关闭")
-			return
-
-		case render.SDL_EVENT_MOUSE_BUTTON_DOWN:
-			btn := render.GetEventMouseButton(evData)
-			x, y := render.GetEventMouseCoords(evData)
-			client.SendControl(input.MouseDown(int32(x), int32(y), uint16(displayW), uint16(displayH), int32(btn)))
-
-		case render.SDL_EVENT_MOUSE_BUTTON_UP:
-			btn := render.GetEventMouseButton(evData)
-			x, y := render.GetEventMouseCoords(evData)
-			client.SendControl(input.MouseUp(int32(x), int32(y), uint16(displayW), uint16(displayH), int32(btn)))
-
-		case render.SDL_EVENT_MOUSE_MOTION:
-			x, y := render.GetEventMouseCoords(evData)
-			client.SendControl(input.MouseMove(int32(x), int32(y), uint16(displayW), uint16(displayH), 0))
-
-		case render.SDL_EVENT_MOUSE_WHEEL:
-			hscroll, vscroll := render.GetEventMouseScroll(evData)
-			x, y := render.GetEventMouseCoords(evData)
-			client.SendControl(input.Scroll(int32(x), int32(y), uint16(displayW), uint16(displayH), int16(hscroll), int16(vscroll)))
-
-		case render.SDL_EVENT_KEY_DOWN:
-			keycode := render.GetEventKeycode(evData)
-			mod := render.GetEventKeyMod(evData)
-			if androidKey, ok := sdlToAndroidKey[keycode]; ok {
-				client.SendControl(input.KeyDown(androidKey, mod))
+		// 1. 处理所有待处理事件
+		for {
+			evType, evData := render.PollEvent()
+			if evType == 0 {
+				break
 			}
-
-		case render.SDL_EVENT_KEY_UP:
-			keycode := render.GetEventKeycode(evData)
-			mod := render.GetEventKeyMod(evData)
-			if androidKey, ok := sdlToAndroidKey[keycode]; ok {
-				client.SendControl(input.KeyUp(androidKey, mod))
+			switch evType {
+			case render.SDL_EVENT_QUIT, render.SDL_EVENT_WINDOW_CLOSE_REQUESTED:
+				fmt.Println("窗口关闭")
+				return
+			case render.SDL_EVENT_MOUSE_BUTTON_DOWN:
+				btn := render.GetEventMouseButton(evData)
+				x, y := render.GetEventMouseCoords(evData)
+				client.SendControl(input.MouseDown(int32(x), int32(y), uint16(displayW), uint16(displayH), int32(btn)))
+			case render.SDL_EVENT_MOUSE_BUTTON_UP:
+				btn := render.GetEventMouseButton(evData)
+				x, y := render.GetEventMouseCoords(evData)
+				client.SendControl(input.MouseUp(int32(x), int32(y), uint16(displayW), uint16(displayH), int32(btn)))
+			case render.SDL_EVENT_MOUSE_MOTION:
+				x, y := render.GetEventMouseCoords(evData)
+				client.SendControl(input.MouseMove(int32(x), int32(y), uint16(displayW), uint16(displayH), 0))
+			case render.SDL_EVENT_MOUSE_WHEEL:
+				hscroll, vscroll := render.GetEventMouseScroll(evData)
+				x, y := render.GetEventMouseCoords(evData)
+				client.SendControl(input.Scroll(int32(x), int32(y), uint16(displayW), uint16(displayH), int16(hscroll), int16(vscroll)))
+			case render.SDL_EVENT_KEY_DOWN:
+				keycode := render.GetEventKeycode(evData)
+				mod := render.GetEventKeyMod(evData)
+				if androidKey, ok := sdlToAndroidKey[keycode]; ok {
+					client.SendControl(input.KeyDown(androidKey, mod))
+				}
+			case render.SDL_EVENT_KEY_UP:
+				keycode := render.GetEventKeycode(evData)
+				mod := render.GetEventKeyMod(evData)
+				if androidKey, ok := sdlToAndroidKey[keycode]; ok {
+					client.SendControl(input.KeyUp(androidKey, mod))
+				}
 			}
 		}
 
-		// 每收到一帧事件就渲染最新帧
-		mu.Lock()
-		nv12, w, h := frameData, frameW, frameH
-		frameData = nil
-		mu.Unlock()
+		// 2. 渲染新帧
+		if newFrame.Load() {
+			nv12 := frameData.Load()
+			w, h := frameW.Load(), frameH.Load()
+			newFrame.Store(false)
 
-		if nv12 != nil {
-			if sdl == nil || w != lastW || h != lastH {
+			if nv12 != nil {
+				if w != lastW || h != lastH {
+					if sdl != nil {
+						sdl.Destroy()
+					}
+					title := fmt.Sprintf("scrcpy - %s (%dx%d)", serial, w, h)
+					var err error
+					sdl, err = render.NewSDLRenderer(title, int(w), int(h))
+					if err != nil {
+						log.Fatalf("创建渲染器失败: %v", err)
+					}
+					lastW, lastH = w, h
+					displayW, displayH = int(w), int(h)
+					fmt.Printf("视频尺寸: %dx%d\n", w, h)
+				}
 				if sdl != nil {
-					sdl.Destroy()
+					if err := sdl.RenderYUV(nv12.([]byte)); err != nil {
+						log.Printf("渲染失败: %v", err)
+					}
 				}
-				title := fmt.Sprintf("scrcpy - %s (%dx%d)", serial, w, h)
-				sdl, err = render.NewSDLRenderer(title, w, h)
-				if err != nil {
-					log.Fatalf("创建渲染器失败: %v", err)
+				frameCount++
+				if frameCount%100 == 0 {
+					fmt.Printf("已渲染 %d 帧\n", frameCount)
 				}
-				lastW = w
-				lastH = h
-				displayW = w
-				displayH = h
-				fmt.Printf("视频尺寸: %dx%d\n", w, h)
-			}
-
-			if err := sdl.RenderYUV(nv12); err != nil {
-				log.Printf("渲染失败: %v", err)
-			}
-			frameCount++
-			if frameCount%100 == 0 {
-				fmt.Printf("已渲染 %d 帧\n", frameCount)
 			}
 		}
+
+		// 3. 让出 CPU，给 Windows 消息泵足够时间处理窗口消息
+		// 16ms ≈ 60fps，避免原 1ms 延迟导致消息泵饥饿
+		render.Delay(16)
 	}
 }
