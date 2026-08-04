@@ -188,6 +188,67 @@ func (o Options) WithControlEnabled(enabled bool) Options
 
 ---
 
+---
+
+## Display 投屏窗口
+
+高精度投屏 API，封装完整的 SDL 投屏流程：创建窗口、解码视频、处理输入事件。
+
+### NewDisplay
+
+```go
+func NewDisplay(serial string, opts Options) (*Display, error)
+```
+
+创建投屏窗口。自动连接设备、创建解码器、初始化 SDL。
+
+**参数：**
+- `serial`: 设备序列号
+- `opts`: 启动选项（LocalJAR 和 ListenPort 自动配置）
+
+**返回值：** Display 指针和错误信息
+
+**示例：**
+```go
+opts := scrcpy.DefaultOptions()
+opts.Server.VideoBitRate = 4000000
+opts.Server.Audio = false
+opts.Server.Control = true
+
+display, err := scrcpy.NewDisplay(serial, opts)
+if err != nil {
+    log.Fatal(err)
+}
+defer display.Close()
+display.Run() // 阻塞直到窗口关闭
+```
+
+### Run
+
+```go
+func (d *Display) Run()
+```
+
+运行投屏窗口（阻塞直到窗口关闭）。内部处理 SDL 事件循环、视频渲染和输入转发。
+
+### Close
+
+```go
+func (d *Display) Close()
+```
+
+关闭投屏窗口，释放解码器和客户端资源。
+
+### SDLToAndroidKey
+
+```go
+var SDLToAndroidKey map[int32]int32
+```
+
+SDL 键码到 Android 键码的映射表，可用于自定义输入处理。
+
+---
+
 ### Client 结构体
 
 单设备客户端，封装与单个 Android 设备的 scrcpy 连接。
@@ -195,22 +256,21 @@ func (o Options) WithControlEnabled(enabled bool) Options
 #### New
 
 ```go
-func New(serial string, opts Options, listenPort int) *Client
+func New(serial string, opts Options) *Client
 ```
 
 创建新的单设备客户端。
 
 **参数：**
 - `serial`: 设备序列号
-- `opts`: 启动选项
-- `listenPort`: PC 监听端口 (0 = 自动分配)
+- `opts`: 启动选项（LocalJAR 和 ListenPort 自动配置）
 
 **返回值：** Client 指针
 
 **示例：**
 ```go
 opts := scrcpy.DefaultOptions()
-client := scrcpy.New("emulator-5554", opts, 27183)
+client := scrcpy.New("emulator-5554", opts)
 ```
 
 #### Start

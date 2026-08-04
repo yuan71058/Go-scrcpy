@@ -64,9 +64,10 @@ func (m *MultiClient) Add(serial string, opts Options) (*Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("查找可用端口失败: %w", err)
 	}
+	opts.ListenPort = port
 
 	// 创建客户端
-	client := New(serial, opts, port)
+	client := New(serial, opts)
 
 	// 启动客户端
 	ctx := context.Background()

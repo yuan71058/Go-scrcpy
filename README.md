@@ -64,20 +64,15 @@ func main() {
 
 ### 投屏窗口 (SDL3)
 
-使用 SDL3 渲染视频并支持鼠标/键盘输入：
+使用 SDL3 渲染视频并支持鼠标/键盘输入，使用  API 只需几行代码：
 
 ```go
 package main
 
 import (
-    "context"
     "fmt"
     "log"
-    "runtime"
 
-    "github.com/yuan71058/go-scrcpy/pkg/input"
-    "github.com/yuan71058/go-scrcpy/pkg/protocol"
-    "github.com/yuan71058/go-scrcpy/pkg/render"
     "github.com/yuan71058/go-scrcpy/pkg/scrcpy"
 )
 
@@ -87,38 +82,14 @@ func main() {
     opts.Server.Audio = false
     opts.Server.Control = true
 
-    client := scrcpy.New("DEVICE_SERIAL", opts, 27183)
-    ctx := context.Background()
-    if err := client.Start(ctx); err != nil {
+    display, err := scrcpy.NewDisplay("DEVICE_SERIAL", opts)
+    if err != nil {
         log.Fatal(err)
     }
-    defer client.Close()
+    defer display.Close()
 
-    hs := client.Handshake().(*protocol.Handshake)
-    displayW := int(hs.GetDisplayWidth())
-    displayH := int(hs.GetDisplayHeight())
-
-    // 必须在 SDL 操作前锁定 OS 线程（Windows 要求）
-    render.InitSDL()
-    runtime.LockOSThread()
-
-    // 解码 goroutine
-    go func() {
-        decoder, _ := render.NewH264Decoder()
-        decoder.SetSize(displayW, displayH)
-        for frame := range client.VideoStream() {
-            yuv, w, h, _ := decoder.Decode(frame.Data)
-            if yuv != nil {
-                // 渲染...
-            }
-        }
-    }()
-
-    // 主线程事件循环
-    for {
-        evType, evData := render.PollEvent()
-        // 处理事件...
-    }
+    fmt.Println("投屏窗口已启动，点击窗口进行交互")
+    display.Run() // 阻塞直到窗口关闭
 }
 ```
 

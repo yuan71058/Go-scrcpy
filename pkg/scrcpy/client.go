@@ -8,6 +8,7 @@ import (
 	"github.com/yuan71058/go-scrcpy/pkg/audio"
 	"github.com/yuan71058/go-scrcpy/pkg/input"
 	"github.com/yuan71058/go-scrcpy/pkg/protocol"
+	"github.com/yuan71058/go-scrcpy/pkg/types"
 	"github.com/yuan71058/go-scrcpy/pkg/video"
 )
 
@@ -24,13 +25,12 @@ type Client struct {
 // New 创建新的单设备客户端
 // serial: 设备序列号
 // opts: 启动选项
-// listenPort: PC 监听端口 (0 = 自动分配)
-func New(serial string, opts Options, listenPort int) *Client {
+func New(serial string, opts Options) *Client {
 	return &Client{
 		session:    NewSession(serial),
 		adb:        adb.NewClient(opts.ADBPath),
 		opts:       opts,
-		listenPort: listenPort,
+		listenPort: opts.ListenPort, // 0 = 自动分配
 	}
 }
 
@@ -73,12 +73,12 @@ func (c *Client) SendControl(msg []byte) error {
 }
 
 // DeviceInfo 获取设备信息
-func (c *Client) DeviceInfo() interface{} {
+func (c *Client) DeviceInfo() *types.DeviceInfo {
 	return c.session.GetDeviceInfo()
 }
 
 // Handshake 获取握手数据
-func (c *Client) Handshake() interface{} {
+func (c *Client) Handshake() *protocol.Handshake {
 	return c.session.GetHandshake()
 }
 

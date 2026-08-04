@@ -35,8 +35,7 @@ func main() {
 	opts.LocalJAR = "E:\\SRC\\Scrcpy\\src\\Go-scrcpy\\data\\scrcpy-server.jar"
 
 	// 使用随机端口
-	listenPort := 27183
-	client := scrcpy.New(serial, opts, listenPort)
+	client := scrcpy.New(serial, opts)
 
 	// 设置信号处理
 	sigChan := make(chan os.Signal, 1)
