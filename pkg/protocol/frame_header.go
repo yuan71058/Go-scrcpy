@@ -19,11 +19,11 @@ type FrameHeader struct {
 // 协议格式 (12 字节):
 // [8B] PTS + flags (big-endian):
 //   byte 0: 0CK.....
-//     bit 7: media packet flag (0 = media packet, 1 = session packet)
-//     bit 6: config packet flag
+//     bit 7: media packet flag (0 = media, 1 = session)
+//     bit 6: config packet flag (SPS/PPS)
 //     bit 5: key frame flag
-//     bits 4-0: PTS bits 60-56
-//   byte 1-7: PTS bits 55-0
+//     bits 0-4: PTS bits 60-56
+//   bytes 1-7: PTS bits 55-0
 // [4B] Packet size (big-endian)
 func ReadFrameHeader(reader *transport.ProtocolReader) (*FrameHeader, error) {
 	logDebug("读取帧元数据头...")
@@ -40,8 +40,8 @@ func ReadFrameHeader(reader *transport.ProtocolReader) (*FrameHeader, error) {
 		return nil, fmt.Errorf("读取包大小失败: %w", err)
 	}
 
-	// 解析标志位 (从最高字节)
-	// bit 7: media packet flag (0 = media packet, 1 = session packet)
+	// 解析标志位 (byte 0 big-endian):
+	// bit 7: media packet flag (0 = media, 1 = session)
 	// bit 6: config packet flag
 	// bit 5: key frame flag
 	config := (ptsAndFlags & (1 << 62)) != 0

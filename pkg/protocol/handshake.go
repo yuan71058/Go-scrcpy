@@ -14,6 +14,7 @@ type Handshake struct {
 	DeviceName    string          // 设备型号 (64 字节)
 	DisplayWidth  uint32          // 显示宽度
 	DisplayHeight uint32          // 显示高度
+	VideoCodecID  uint32          // 视频编解码器 ID (如 0x68323634 = "h264")
 	DeviceNameRaw [DeviceNameFieldLength]byte // 原始设备名数据
 }
 
@@ -42,6 +43,7 @@ func ReadHandshake(reader *transport.ProtocolReader) (*Handshake, error) {
 	if err != nil {
 		return nil, fmt.Errorf("读取视频 codec ID 失败: %w", err)
 	}
+	handshake.VideoCodecID = videoCodecID
 	logDebug("视频 codec ID: 0x%08X", videoCodecID)
 
 	// 读取 session packet (12 字节)
@@ -88,9 +90,32 @@ func (h *Handshake) GetDisplayHeight() uint32 {
 	return h.DisplayHeight
 }
 
+// GetVideoCodecID 获取视频编解码器 ID
+func (h *Handshake) GetVideoCodecID() uint32 {
+	return h.VideoCodecID
+}
+
+// GetVideoCodecName 获取视频编解码器名称
+func (h *Handshake) GetVideoCodecName() string {
+	switch h.VideoCodecID {
+	case 0x68323634:
+		return "h264"
+	case 0x68323635:
+		return "h265"
+	case 0x00617631:
+		return "av1"
+	case 0x00767038:
+		return "vp8"
+	case 0x00767039:
+		return "vp9"
+	default:
+		return fmt.Sprintf("unknown(0x%08X)", h.VideoCodecID)
+	}
+}
+
 // String 返回握手信息的字符串表示
 func (h *Handshake) String() string {
-	return fmt.Sprintf("设备名: %s, 分辨率: %dx%d", h.DeviceName, h.DisplayWidth, h.DisplayHeight)
+	return fmt.Sprintf("设备名: %s, 分辨率: %dx%d, 编码: %s", h.DeviceName, h.DisplayWidth, h.DisplayHeight, h.GetVideoCodecName())
 }
 
 // ReadDeviceNameOnly 仅读取设备名 (64 字节)

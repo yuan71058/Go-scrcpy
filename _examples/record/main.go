@@ -29,7 +29,6 @@ func main() {
 	serial := os.Args[1]
 
 	// 创建客户端
-	adbClient := adb.NewClient("adb")
 	opts := scrcpy.DefaultOptions()
 	opts.Server.Audio = false
 	opts.LocalJAR = "E:\\SRC\\Scrcpy\\src\\Go-scrcpy\\data\\scrcpy-server.jar"

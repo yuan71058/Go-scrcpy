@@ -27,9 +27,6 @@ func main() {
 	}
 	serial := os.Args[1]
 
-	// 创建 ADB 客户端
-	adbClient := adb.NewClient("adb")
-
 	// 创建 scrcpy 客户端
 	opts := scrcpy.DefaultOptions()
 	opts.Server.VideoBitRate = 4000000 // 4Mbps

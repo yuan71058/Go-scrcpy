@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/yuan71058/go-scrcpy/pkg/adb"
-	"github.com/yuan71058/go-scrcpy/pkg/input"
 	"github.com/yuan71058/go-scrcpy/pkg/scrcpy"
 )
 
@@ -29,7 +28,6 @@ func main() {
 	serial := os.Args[1]
 
 	// 创建客户端
-	adbClient := adb.NewClient("adb")
 	opts := scrcpy.DefaultOptions()
 	opts.Server.Audio = false
 	opts.LocalJAR = "E:\\SRC\\Scrcpy\\src\\Go-scrcpy\\data\\scrcpy-server.jar"

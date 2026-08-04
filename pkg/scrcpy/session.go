@@ -137,6 +137,8 @@ func (s *DeviceSession) Start(ctx context.Context) error {
 
 	// 启动控制消息读取 goroutine
 	go s.readControlLoop(ctx)
+		// 启动控制消息发送 goroutine（非阻塞，避免主线程卡死）
+		go s.writeControlLoop(ctx)
 
 	return nil
 }
@@ -343,6 +345,39 @@ func (s *DeviceSession) SendControl(msg []byte) error {
 
 	writer := transport.NewProtocolWriter(s.conn.ControlConn)
 	return writer.Write(msg)
+}
+
+
+// writeControlLoop 控制消息发送循环（单 goroutine 串行发送，避免并发写 socket）
+func (s *DeviceSession) writeControlLoop(ctx context.Context) {
+	logInfo("控制消息发送循环启动 [%s]", s.serial)
+
+	writer := transport.NewProtocolWriter(s.conn.ControlConn)
+
+	for {
+		select {
+		case <-ctx.Done():
+			logInfo("控制消息发送循环收到取消信号 [%s]", s.serial)
+			return
+		case msg := <-s.controlChan:
+			if msg == nil {
+				return
+			}
+			s.mu.Lock()
+			closed := s.closed
+			s.mu.Unlock()
+			if closed {
+				return
+			}
+			if s.conn == nil || s.conn.ControlConn == nil {
+				continue
+			}
+			s.conn.ControlConn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+			if err := writer.Write(msg); err != nil {
+				logError("发送控制消息失败 [%s]: %v", s.serial, err)
+			}
+		}
+	}
 }
 
 // GetDeviceInfo 获取设备信息

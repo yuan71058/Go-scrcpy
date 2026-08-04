@@ -30,12 +30,12 @@ const (
 // 帧标志位常量 (用于 PTS + flags 字段)
 // 注意: 这些标志位在协议中使用 uint64 表示
 const (
-	// PacketFlagConfig 配置包标志 (SPS/PPS) - bit 63
-	PacketFlagConfig uint64 = 1 << 63
-	// PacketFlagKeyFrame 关键帧标志 - bit 62
-	PacketFlagKeyFrame uint64 = 1 << 62
-	// PacketPTSMask PTS 掩码 (低 62 位)
-	PacketPTSMask uint64 = 0x3FFFFFFFFFFFFFFF
+	// PacketFlagConfig 配置包标志 (SPS/PPS) - bit 62
+	PacketFlagConfig uint64 = 1 << 62
+	// PacketFlagKeyFrame 关键帧标志 - bit 61
+	PacketFlagKeyFrame uint64 = 1 << 61
+	// PacketPTSMask PTS 掩码 (低 61 位)
+	PacketPTSMask uint64 = 0x1FFFFFFFFFFFFFFF
 )
 
 // 控制消息类型常量
